@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <locale.h>
 #include <sys/time.h>
+#include <argp.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_cycles.h>
@@ -26,12 +27,39 @@
 
 #define STATS_INTERVAL_MS 1000
 
-/* pixelfluter_v6.c: Pixelflut v6 client. */
+static struct argp_option options[] = {
+    {"image", 'i', "<image-file>", 0,  "Path to image to flut" },
+};
+struct arguments {
+    char *image_file;
+};
 
-/*
- * Initializes a given port using global settings and with the RX buffers
- * coming from the mbuf_pool passed as a parameter.
- */
+static error_t parse_opt(int key, char *arg, struct argp_state *state) {
+  // Get the input argument from argp_parse, which we know is a pointer to our arguments structure
+  struct arguments *arguments = state->input;
+
+  switch (key)
+    {
+    case 'i':
+      arguments->image_file = arg;
+      break;
+
+    case ARGP_KEY_END:
+        if (arguments->image_file == NULL) {
+            argp_failure(state, 1, 0, "--image required. See --help for more information");
+            exit(ARGP_ERR_UNKNOWN);
+      }
+
+    default:
+      return ARGP_ERR_UNKNOWN;
+    }
+  return 0;
+}
+
+const char *argp_program_version = "pixelfluter-v6-client 0.1.0";
+static char doc[] = "Fast pixelflut v6 or pingxelflut client using DPDK";
+static char args_doc[] = "--image <image-file>";
+static struct argp argp = { options, parse_opt, args_doc, doc };
 
 /* Main functional part of port initialization. 8< */
 static inline int
@@ -348,22 +376,6 @@ lcore_main(struct main_thread_args *args)
 int
 main(int argc, char *argv[])
 {
-    int err = 0;
-
-    char* file_name = "red.jpg";
-    // char* file_name = "/home/sbernauer/private/pixelflut/sturmflut/red.jpg";
-    // char* file_name = "/home/sbernauer/Desktop/Screenshots/Screenshot_20230720_114553.png";
-
-    struct fluter_image* fluter_image;
-    if((err = load_image(&fluter_image, file_name))) {
-		fprintf(stderr, "Failed to load image from %s: %s\n", file_name, strerror(-err));
-		return err;
-	}
-
-    struct rte_mempool *mbuf_pool;
-    unsigned nb_ports;
-    uint16_t portid;
-
     /* Initializion the Environment Abstraction Layer (EAL). 8< */
     int ret = rte_eal_init(argc, argv);
     if (ret < 0)
@@ -372,6 +384,22 @@ main(int argc, char *argv[])
 
     argc -= ret;
     argv += ret;
+
+    // Parse command arguments (after the EAL ones)
+    struct arguments arguments = {0};
+    argp_parse(&argp, argc, argv, 0, 0, &arguments);
+
+    int err = 0;
+
+    struct fluter_image* fluter_image;
+    if((err = load_image(&fluter_image, arguments.image_file))) {
+		fprintf(stderr, "Failed to load image from %s: %s\n", arguments.image_file, strerror(-err));
+		return err;
+	}
+
+    struct rte_mempool *mbuf_pool;
+    unsigned nb_ports;
+    uint16_t portid;
 
     /* Check that there is an even number of ports to send/receive on. */
     nb_ports = rte_eth_dev_count_avail();
