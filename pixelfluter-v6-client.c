@@ -232,6 +232,7 @@ lcore_main(struct main_thread_args *args)
             ipv6_hdr->dst_addr[14] = fluter_image->pixels[4 * (y * width + x) + 2];
             ipv6_hdr->dst_addr[15] = 0;
 
+            // FIXME: Don't keep writing past the destination address, altough this should be well-defined behavior (?).
             // UDP Header
             ipv6_hdr->dst_addr[16] = 0; // Source port in UDP
             ipv6_hdr->dst_addr[17] = 13;
