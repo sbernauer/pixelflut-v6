@@ -24,7 +24,8 @@
 #define STATS_INTERVAL_MS 1000
 
 static struct argp_option options[] = {
-    {"image", 'i', "<image-file>", 0,  "Path to image to flut" },
+    {"image", 'i', "<image-file>", 0,  "Path to image to flut"},
+    {0}
 };
 struct arguments {
     char *image_file;

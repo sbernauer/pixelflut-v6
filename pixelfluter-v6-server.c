@@ -20,8 +20,9 @@
 #define STATS_INTERVAL_MS 1000
 
 static struct argp_option options[] = {
-    {"width",  'w', "pixels", 0,  "Width of the drawing surface in pixels"  },
-    {"height", 'h', "pixels", 0,  "Height of the drawing surface in pixels" },
+    {"width",  'w', "pixels", 0,  "Width of the drawing surface in pixels" },
+    {"height", 'h', "pixels", 0,  "Height of the drawing surface in pixels"},
+    {0}
 };
 struct arguments {
     int width;
@@ -34,6 +35,13 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 
   switch (key)
     {
+    case 'w':
+      arguments->width = (int) strtol(arg, NULL, 10);
+      break;
+    case 'h':
+      arguments->height = (int) strtol(arg, NULL, 10);
+      break;
+
     default:
       return ARGP_ERR_UNKNOWN;
     }
