@@ -1,7 +1,3 @@
-/* SPDX-License-Identifier: BSD-3-Clause
- * Copyright(c) 2010-2015 Intel Corporation
- */
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <inttypes.h>
@@ -61,10 +57,8 @@ static char doc[] = "Fast pixelflut v6 or pingxelflut client using DPDK";
 static char args_doc[] = "--image <image-file>";
 static struct argp argp = { options, parse_opt, args_doc, doc };
 
-/* Main functional part of port initialization. 8< */
-static inline int
-port_init(uint16_t port, struct rte_mempool *mbuf_pool)
-{
+// Main functional part of port initialization
+static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
     struct rte_eth_conf port_conf;
     const uint16_t rx_rings = 1, tx_rings = 1;
     uint16_t nb_rxd = RX_RING_SIZE;
@@ -90,7 +84,7 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool)
         port_conf.txmode.offloads |=
             RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
 
-    /* Configure the Ethernet device. */
+    // Configure the Ethernet device
     retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
     if (retval != 0)
         return retval;
@@ -99,7 +93,7 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool)
     if (retval != 0)
         return retval;
 
-    /* Allocate and set up 1 RX queue per Ethernet port. */
+    // Allocate and set up 1 RX queue per Ethernet port
     for (q = 0; q < rx_rings; q++) {
         retval = rte_eth_rx_queue_setup(port, q, nb_rxd,
                 rte_eth_dev_socket_id(port), NULL, mbuf_pool);
@@ -109,7 +103,7 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool)
 
     txconf = dev_info.default_txconf;
     txconf.offloads = port_conf.txmode.offloads;
-    /* Allocate and set up 1 TX queue per Ethernet port. */
+    // Allocate and set up 1 TX queue per Ethernet port
     for (q = 0; q < tx_rings; q++) {
         retval = rte_eth_tx_queue_setup(port, q, nb_txd,
                 rte_eth_dev_socket_id(port), &txconf);
@@ -117,13 +111,12 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool)
             return retval;
     }
 
-    /* Starting Ethernet port. 8< */
+    // Starting Ethernet port
     retval = rte_eth_dev_start(port);
-    /* >8 End of starting of ethernet port. */
     if (retval < 0)
         return retval;
 
-    /* Display the port MAC address. */
+    // Display the port MAC address
     struct rte_ether_addr addr;
     retval = rte_eth_macaddr_get(port, &addr);
     if (retval != 0)
@@ -133,20 +126,13 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool)
                " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
             port, RTE_ETHER_ADDR_BYTES(&addr));
 
-    /* Enable RX in promiscuous mode for the Ethernet device. */
+    // Enable RX in promiscuous mode for the Ethernet device
     retval = rte_eth_promiscuous_enable(port);
-    /* End of setting RX port in promiscuous mode. */
     if (retval != 0)
         return retval;
 
     return 0;
 }
-/* >8 End of main functional part of port initialization. */
-
-/*
- * The lcore main. This is the main thread that does the work, reading from
- * an input port and writing to an output port.
- */
 
 struct main_thread_args {
     struct fluter_image *fluter_image;
@@ -154,10 +140,7 @@ struct main_thread_args {
     int port_id;
 };
 
- /* Basic forwarding application lcore. 8< */
-static __rte_noreturn void
-lcore_main(struct main_thread_args *args)
-{
+static __rte_noreturn void lcore_main(struct main_thread_args *args) {
     // Read args
     struct fluter_image *fluter_image = args->fluter_image;
     struct rte_mempool *mbuf_pool = args->mbuf_pool;
@@ -175,8 +158,7 @@ lcore_main(struct main_thread_args *args)
     gettimeofday(&last_stats_report, NULL);
 
     /*
-     * Check that the port is on the same NUMA node as the polling thread
-     * for best performance.
+     * Check that the port is on the same NUMA node as the polling thread for best performance.
      */
     RTE_ETH_FOREACH_DEV(port)
         if (rte_eth_dev_socket_id(port) >= 0 && rte_eth_dev_socket_id(port) != (int)rte_socket_id())
@@ -295,7 +277,6 @@ lcore_main(struct main_thread_args *args)
 
         do {
             nb_tx = rte_eth_tx_burst(port_id, /* queue_id */ 0, pkt, BURST_SIZE);
-            // printf("Send %u packets to port %u\n", nb_tx, port_id);
         } while(nb_tx == 0);
 
 
@@ -333,54 +314,17 @@ lcore_main(struct main_thread_args *args)
         }
     }
 
-    /* closing and releasing resources */
+    // Closing and releasing resources
     // rte_flow_flush(port_id, &error);
     rte_eth_dev_stop(port_id);
     rte_eth_dev_close(port_id);
-
-    // for (;;) {
-    //     /*
-    //      * Receive packets on a port and forward them on the paired
-    //      * port. The mapping is 0 -> 1, 1 -> 0, 2 -> 3, 3 -> 2, etc.
-    //      */
-    //     RTE_ETH_FOREACH_DEV(port) {
-
-    //         /* Get burst of RX packets, from first port of pair. */
-    //         struct rte_mbuf *bufs[BURST_SIZE];
-    //         const uint16_t nb_rx = rte_eth_rx_burst(port, 0,
-    //                 bufs, BURST_SIZE);
-
-    //         if (unlikely(nb_rx == 0))
-    //             continue;
-
-    //         /* Send burst of TX packets, to second port of pair. */
-    //         const uint16_t nb_tx = rte_eth_tx_burst(port ^ 1, 0,
-    //                 bufs, nb_rx);
-
-    //         /* Free any unsent packets. */
-    //         if (unlikely(nb_tx < nb_rx)) {
-    //             uint16_t buf;
-    //             for (buf = nb_tx; buf < nb_rx; buf++)
-    //                 rte_pktmbuf_free(bufs[buf]);
-    //         }
-    //     }
-    // }
-    /* >8 End of loop. */
 }
-/* >8 End Basic forwarding application lcore. */
 
-/*
- * The main function, which does initialization and calls the per-lcore
- * functions.
- */
-int
-main(int argc, char *argv[])
-{
-    /* Initializion the Environment Abstraction Layer (EAL). 8< */
+int main(int argc, char *argv[]) {
+    // Initializion the Environment Abstraction Layer (EAL)
     int ret = rte_eal_init(argc, argv);
     if (ret < 0)
         rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");
-    /* >8 End of initialization the Environment Abstraction Layer (EAL). */
 
     argc -= ret;
     argv += ret;
@@ -401,31 +345,27 @@ main(int argc, char *argv[])
     unsigned nb_ports;
     uint16_t portid;
 
-    /* Check that there is an even number of ports to send/receive on. */
     nb_ports = rte_eth_dev_count_avail();
     printf("Detected %u ports\n", nb_ports);
     if (nb_ports != 1)
         rte_exit(EXIT_FAILURE, "Error: currently only a single port is supported, you have %d ports\n", nb_ports);
 
-    /* Allocates mempool to hold the mbufs. 8< */
+    // Allocates mempool to hold the mbufs
     mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", NUM_MBUFS * nb_ports,
         MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
-    printf("mbuf created\n");
     if (mbuf_pool == NULL)
         rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
-    /* >8 End of allocating mempool to hold mbuf. */
 
-    /* Initializing all ports. 8< */
+    // Initializing all ports
     RTE_ETH_FOREACH_DEV(portid)
         if (port_init(portid, mbuf_pool) != 0)
             rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu16 "\n",
                     portid);
-    /* >8 End of initializing all ports. */
 
     if (rte_lcore_count() > 1)
         printf("\nWARNING: Too many lcores enabled. Only 1 used.\n");
 
-    /* Call lcore_main on the main core only. Called on single lcore. 8< */
+    // Call lcore_main on the main core only. Called on single lcore
     struct main_thread_args args;
     args.fluter_image = fluter_image;
     args.mbuf_pool = mbuf_pool;
@@ -433,9 +373,8 @@ main(int argc, char *argv[])
     args.port_id = 0;
 
     lcore_main(&args);
-    /* >8 End of called on single lcore. */
 
-    /* clean up the EAL */
+    // Clean up the EAL
     rte_eal_cleanup();
 
     return 0;
