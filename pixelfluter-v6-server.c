@@ -20,8 +20,12 @@
 #define STATS_INTERVAL_MS 1000
 
 static struct argp_option options[] = {
+    {"width",  'w', "pixels", 0,  "Width of the drawing surface in pixels"  },
+    {"height", 'h', "pixels", 0,  "Height of the drawing surface in pixels" },
 };
 struct arguments {
+    int width;
+    int height;
 };
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -162,7 +166,9 @@ int main(int argc, char *argv[]) {
     argv += ret;
 
     // Parse command arguments (after the EAL ones)
-    struct arguments arguments = {};
+    struct arguments arguments = {0};
+    arguments.width = 1920;
+    arguments.height = 1080;
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
     int err = 0;
