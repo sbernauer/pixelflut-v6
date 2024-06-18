@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <locale.h>
+#include <sys/time.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_cycles.h>
@@ -21,6 +23,8 @@
 #define BURST_SIZE 32
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
+
+#define STATS_INTERVAL_MS 1000
 
 /* pixelfluter_v6.c: Pixelflut v6 client. */
 
@@ -135,7 +139,12 @@ lcore_main(struct main_thread_args *args)
     int height = fluter_image->height;
 
     uint16_t port, nb_tx;
-    uint32_t log_counter = 0;
+
+    uint32_t stats_loop_counter = 0;
+    struct timeval last_stats_report, now;
+    long elapsed_millis;
+
+    gettimeofday(&last_stats_report, NULL);
 
     /*
      * Check that the port is on the same NUMA node as the polling thread
@@ -273,16 +282,26 @@ lcore_main(struct main_thread_args *args)
         for(i=0;i<BURST_SIZE;i++)
             rte_pktmbuf_free(pkt[i]);
 
-        log_counter++;
-        if (unlikely(log_counter > 100000)) {
-            log_counter = 0;
+        // I assume reading the system time is a expensive operation, so let's not do that every loop...
+        stats_loop_counter++;
+        if (unlikely(stats_loop_counter > 10000)) {
+            stats_loop_counter = 0;
 
-            struct rte_eth_stats eth_stats;
-            rte_eth_stats_get(port_id, &eth_stats);
-            printf("Total number of packets for port %u: send %lu packets (%lu bytes), "
-                "received %lu packets (%lu bytes), dropped rx %lu, ierrors %lu, rx_nombuf %lu, q_ipackets %lu\n",
-                port_id, eth_stats.opackets, eth_stats.obytes, eth_stats.ipackets, eth_stats.ibytes, eth_stats.imissed,
-                eth_stats.ierrors, eth_stats.rx_nombuf, eth_stats.q_ipackets[0]);
+            gettimeofday(&now, NULL);
+            elapsed_millis = (now.tv_sec - last_stats_report.tv_sec) * 1000.0;
+            elapsed_millis += (now.tv_usec - last_stats_report.tv_usec) / 1000.0;
+
+            if (elapsed_millis >= STATS_INTERVAL_MS) {
+                last_stats_report = now;
+
+                struct rte_eth_stats eth_stats;
+                rte_eth_stats_get(port_id, &eth_stats);
+                setlocale(LC_NUMERIC, "");
+                printf("Total number of packets for port %u: send %'lu packets (%'lu bytes), "
+                    "received %'lu packets (%'lu bytes), dropped rx %'lu, ierrors %'lu, rx_nombuf %'lu, q_ipackets %'lu\n",
+                    port_id, eth_stats.opackets, eth_stats.obytes, eth_stats.ipackets, eth_stats.ibytes, eth_stats.imissed,
+                    eth_stats.ierrors, eth_stats.rx_nombuf, eth_stats.q_ipackets[0]);
+            }
         }
     }
 
