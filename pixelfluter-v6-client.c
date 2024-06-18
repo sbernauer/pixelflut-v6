@@ -288,8 +288,9 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
                 rte_pktmbuf_free(pkt[buf]);
         }
 
-        for(i=0;i<BURST_SIZE;i++)
+        for(i = 0; i < BURST_SIZE; i++) {
             rte_pktmbuf_free(pkt[i]);
+        }
 
         // I assume reading the system time is a expensive operation, so let's not do that every loop...
         stats_loop_counter++;

@@ -133,7 +133,7 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
     struct rte_mempool *mbuf_pool = args->mbuf_pool;
     int port_id = args->port_id;
 
-    uint16_t port, nb_tx;
+    uint16_t port, nb_rx;
 
     uint32_t stats_loop_counter = 0;
     struct timeval last_stats_report, now;
@@ -147,7 +147,40 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             printf("WARNING, port %u is on remote NUMA node to polling thread.\n"
                 "\tPerformance will not be optimal.\n", port);
 
-    for (;;) { }
+    struct rte_mbuf * pkt[BURST_SIZE];
+    int i;
+    for (;;) {
+        nb_rx = rte_eth_rx_burst(port_id, /* queue_id */ 0, pkt, BURST_SIZE);
+
+        // printf("Received %u packets\n", nb_rx);
+        // rte_delay_ms(100);
+        for (i = 0; i < nb_rx; i++) {
+            // printf("Freeing %u\n", i);
+            rte_pktmbuf_free(pkt[i]);
+        }
+
+        // I assume reading the system time is a expensive operation, so let's not do that every loop...
+        stats_loop_counter++;
+        if (unlikely(stats_loop_counter > 10000)) {
+            stats_loop_counter = 0;
+
+            gettimeofday(&now, NULL);
+            elapsed_millis = (now.tv_sec - last_stats_report.tv_sec) * 1000.0;
+            elapsed_millis += (now.tv_usec - last_stats_report.tv_usec) / 1000.0;
+
+            if (elapsed_millis >= STATS_INTERVAL_MS) {
+                last_stats_report = now;
+
+                struct rte_eth_stats eth_stats;
+                rte_eth_stats_get(port_id, &eth_stats);
+                setlocale(LC_NUMERIC, "");
+                printf("Total number of packets for port %u: send %'lu packets (%'lu bytes), "
+                    "received %'lu packets (%'lu bytes), dropped rx %'lu, ierrors %'lu, rx_nombuf %'lu, q_ipackets %'lu\n",
+                    port_id, eth_stats.opackets, eth_stats.obytes, eth_stats.ipackets, eth_stats.ibytes, eth_stats.imissed,
+                    eth_stats.ierrors, eth_stats.rx_nombuf, eth_stats.q_ipackets[0]);
+            }
+        }
+    }
 
     // Closing and releasing resources
     // rte_flow_flush(port_id, &error);
