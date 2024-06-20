@@ -172,7 +172,7 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
 
     uint16_t pkt_size = MAX(
         64, // The minimum packet size sent/received through Ethernet is always 64 bytes according to Ethernet specification
-        sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + 8 /* UDP payload */
+        sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_udp_hdr)
     );
 
     struct rte_ether_addr dst_addr;
