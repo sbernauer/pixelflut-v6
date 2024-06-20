@@ -1,5 +1,5 @@
 # all source are stored in SRCS-y
-SERVER_SOURCES := pixelfluter-v6-server.c
+SERVER_SOURCES := pixelfluter-v6-server.c framebuffer.c
 CLIENT_SOURCES := pixelfluter-v6-client.c image.c
 
 PKGCONF ?= pkg-config

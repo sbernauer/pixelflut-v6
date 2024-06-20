@@ -10,6 +10,8 @@
 #include <rte_lcore.h>
 #include <rte_mbuf.h>
 
+#include "framebuffer.h"
+
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
 
@@ -25,8 +27,8 @@ static struct argp_option options[] = {
     {0}
 };
 struct arguments {
-    int width;
-    int height;
+    uint16_t width;
+    uint16_t height;
 };
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -36,10 +38,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
   switch (key)
     {
     case 'w':
-      arguments->width = (int) strtol(arg, NULL, 10);
+      arguments->width = (uint16_t) strtol(arg, NULL, 10);
       break;
     case 'h':
-      arguments->height = (int) strtol(arg, NULL, 10);
+      arguments->height = (uint16_t) strtol(arg, NULL, 10);
       break;
 
     default:
@@ -71,8 +73,7 @@ static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
 
     retval = rte_eth_dev_info_get(port, &dev_info);
     if (retval != 0) {
-        printf("Error during getting device (port %u) info: %s\n",
-                port, strerror(-retval));
+        printf("Error during getting device (port %u) info: %s\n", port, strerror(-retval));
         return retval;
     }
 
@@ -118,8 +119,7 @@ static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
     if (retval != 0)
         return retval;
 
-    printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8
-               " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
+    printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8" %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
             port, RTE_ETHER_ADDR_BYTES(&addr));
 
     // Enable RX in promiscuous mode for the Ethernet device
@@ -133,6 +133,7 @@ static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
 struct main_thread_args {
     struct rte_mempool *mbuf_pool;
     int port_id;
+    struct framebuffer* fb;
 };
 
  /* Basic forwarding application lcore. 8< */
@@ -140,6 +141,7 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
     // Read args
     struct rte_mempool *mbuf_pool = args->mbuf_pool;
     int port_id = args->port_id;
+    struct framebuffer* fb = args->fb;
 
     uint16_t port, nb_rx;
 
@@ -155,6 +157,12 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             printf("WARNING, port %u is on remote NUMA node to polling thread.\n"
                 "\tPerformance will not be optimal.\n", port);
 
+    struct rte_ether_hdr *eth_hdr;
+    struct rte_ipv6_hdr *ipv6_hdr;
+
+    uint16_t x, y;
+    uint32_t rgba;
+
     struct rte_mbuf * pkt[BURST_SIZE];
     int i;
     for (;;) {
@@ -163,7 +171,17 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
         // printf("Received %u packets\n", nb_rx);
         // rte_delay_ms(100);
         for (i = 0; i < nb_rx; i++) {
-            // printf("Freeing %u\n", i);
+            eth_hdr = rte_pktmbuf_mtod(pkt[i], struct rte_ether_hdr *);
+            if (eth_hdr->ether_type == htons(RTE_ETHER_TYPE_IPV6)) {
+                ipv6_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_ipv6_hdr*, sizeof(struct rte_ether_hdr));
+                x = ((uint16_t)ipv6_hdr->dst_addr[8] << 8) + (uint16_t)ipv6_hdr->dst_addr[9];
+                y = ((uint16_t)ipv6_hdr->dst_addr[10] << 8) + (uint16_t)ipv6_hdr->dst_addr[11];
+                rgba = ((uint32_t)ipv6_hdr->dst_addr[12] << 24) + ((uint32_t)ipv6_hdr->dst_addr[13] << 16) + ((uint32_t)ipv6_hdr->dst_addr[14] << 8);
+            }
+
+            // printf("Got packet with (%u, %u) and rgba %010x\n", x, y, rgba);
+            fb_set(fb, x, y, rgba);
+
             rte_pktmbuf_free(pkt[i]);
         }
 
@@ -214,6 +232,12 @@ int main(int argc, char *argv[]) {
 
     int err = 0;
 
+    struct framebuffer* fb;
+    if((err = fb_alloc(&fb, arguments.width, arguments.height))) {
+		fprintf(stderr, "Failed to allocate framebuffer: %s\n", strerror(-err));
+        return err;
+	}
+
     struct rte_mempool *mbuf_pool;
     unsigned nb_ports;
     uint16_t portid;
@@ -243,6 +267,7 @@ int main(int argc, char *argv[]) {
     args.mbuf_pool = mbuf_pool;
     // FIXME: Currently this only works with a single port
     args.port_id = 0;
+    args.fb = fb;
 
     lcore_main(&args);
 

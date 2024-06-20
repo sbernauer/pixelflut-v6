@@ -76,8 +76,7 @@ static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
 
     retval = rte_eth_dev_info_get(port, &dev_info);
     if (retval != 0) {
-        printf("Error during getting device (port %u) info: %s\n",
-                port, strerror(-retval));
+        printf("Error during getting device (port %u) info: %s\n", port, strerror(-retval));
         return retval;
     }
 
@@ -123,8 +122,7 @@ static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
     if (retval != 0)
         return retval;
 
-    printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8
-               " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
+    printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8" %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
             port, RTE_ETHER_ADDR_BYTES(&addr));
 
     // Enable RX in promiscuous mode for the Ethernet device
