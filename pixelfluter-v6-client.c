@@ -168,6 +168,8 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
 
     struct rte_ether_hdr *eth_hdr;
     struct rte_ipv6_hdr *ipv6_hdr;
+    struct rte_udp_hdr *udp_hdr;
+
     uint16_t pkt_size = MAX(
         64, // The minimum packet size sent/received through Ethernet is always 64 bytes according to Ethernet specification
         sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + 8 /* UDP payload */
@@ -252,16 +254,15 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             ipv6_hdr->dst_addr[14] = fluter_image->pixels[4 * (y * width + x) + 2];
             ipv6_hdr->dst_addr[15] = 0;
 
-            // FIXME: Don't keep writing past the destination address, altough this should be well-defined behavior (?).
-            // UDP Header
-            ipv6_hdr->dst_addr[16] = 0; // Source port in UDP
-            ipv6_hdr->dst_addr[17] = 13;
-            ipv6_hdr->dst_addr[18] = 0; // Destination port in UDP
-            ipv6_hdr->dst_addr[19] = 42;
-            ipv6_hdr->dst_addr[20] = 0; // Length
-            ipv6_hdr->dst_addr[21] = 0;
-            ipv6_hdr->dst_addr[22] = 0; // Checksum (manditory at IPv6)
-            ipv6_hdr->dst_addr[23] = 0;
+            udp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_udp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr));
+            udp_hdr->src_port = htons(1337);
+            udp_hdr->src_port = htons(1234);
+            udp_hdr->dgram_len = 0;
+            // This seems to be fine. Either the hardware offloading of the NIC takes care of this or I currently don't
+            // notice any problems, as I'm only sending NIC -> NIC and nothing is actually checking the checksum.
+            // Hopefully routers only care about the IP header and leave checking the UDP header to the receiving
+            // application or kernel.
+            udp_hdr->dgram_cksum = 0;
 
             pkt[i]->data_len = pkt_size;
             pkt[i]->pkt_len = pkt_size;
