@@ -193,6 +193,7 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
 
     int x = 0;
     int y = 0;
+    int pixel_index = 0;
 
     printf("\nCore %u sending %u byte packets on port %u. [Ctrl+C to quit]\n", rte_lcore_id(), pkt_size, port_id);
 
@@ -249,10 +250,11 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             ipv6_hdr->dst_addr[11] = y;
 
             // Color in rgb
-            ipv6_hdr->dst_addr[12] = fluter_image->pixels[4 * (y * width + x) + 0];
-            ipv6_hdr->dst_addr[13] = fluter_image->pixels[4 * (y * width + x) + 1];
-            ipv6_hdr->dst_addr[14] = fluter_image->pixels[4 * (y * width + x) + 2];
-            ipv6_hdr->dst_addr[15] = 0;
+            pixel_index = y * width + x;
+            ipv6_hdr->dst_addr[12] = fluter_image->pixels[pixel_index] >> 0;
+            ipv6_hdr->dst_addr[13] = fluter_image->pixels[pixel_index] >> 8;
+            ipv6_hdr->dst_addr[14] = fluter_image->pixels[pixel_index] >> 16;
+            ipv6_hdr->dst_addr[15] = fluter_image->pixels[pixel_index] >> 24;
 
             udp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_udp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr));
             udp_hdr->src_port = htons(1337);

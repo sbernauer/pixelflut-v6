@@ -11,7 +11,7 @@ struct fluter_image {
     unsigned int width;
     unsigned int height;
 
-    uint8_t* pixels;
+    uint32_t* pixels;
 };
 
 int load_image(struct fluter_image** ret, char* file_name);

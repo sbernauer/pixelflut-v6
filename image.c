@@ -25,8 +25,8 @@ int load_image(struct fluter_image** ret, char* file_name) {
     int height = MagickGetImageHeight(m_wand);
     printf("Loaded image with (%u, %u) pixels\n", width, height);
 
-    char* pixels = (char *)malloc(width * height * 4);
-    isOK = MagickExportImagePixels(m_wand, 0, 0, width, height, "RGBA", CharPixel, pixels);
+    unsigned char* pixel_colors = (char *)malloc(width * height * 4);
+    isOK = MagickExportImagePixels(m_wand, 0, 0, width, height, "RGBA", CharPixel, pixel_colors);
     if (isOK == MagickFalse) {
         fprintf(stderr, "Failed to export pixels from image %s\n", file_name);
         return -1;
@@ -40,7 +40,8 @@ int load_image(struct fluter_image** ret, char* file_name) {
 
     fluter_image->width = width;
     fluter_image->height = height;
-    fluter_image->pixels = pixels;
+    // They have the same memory layout
+    fluter_image->pixels = (uint32_t*)pixel_colors;
 
     *ret = fluter_image;
     return 0;
