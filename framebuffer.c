@@ -11,7 +11,7 @@
 #include "framebuffer.h"
 
 int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height, char* shared_memory_name) {
-    int fd = shm_open(shared_memory_name, O_CREAT | O_RDWR, 0600);
+    int fd = shm_open(shared_memory_name, O_CREAT | O_RDWR, 0666);
     if(fd == -1) {
         printf("Failed to create shared memory with name %s: %s\n", shared_memory_name, strerror(errno));
         return errno;
@@ -49,6 +49,9 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
         printf("Failed to mmap the the shared memory with name %s: %s\n", shared_memory_name, strerror(errno));
         return errno;
     }
+
+    fb->width = width;
+    fb->height = height;
 
     printf("Created framebuffer of size (%u,%u) backed by shared memory with the name %s\n",
         width, height, shared_memory_name);

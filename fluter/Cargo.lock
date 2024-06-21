@@ -410,6 +410,7 @@ checksum = "ba8593196da75d9dc4f69349682bd4c2099f8cde114257d1ef7ef1b33d1aba54"
 dependencies = [
  "cfg-if",
  "libc",
+ "log",
  "nix",
  "rand",
  "win-sys",

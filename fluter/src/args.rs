@@ -11,6 +11,6 @@ pub struct Args {
     #[clap(short = 'f', long, default_value = "30")]
     pub fps: u32,
 
-    #[clap(long, default_value = "/dev/shm/pixelflut")]
+    #[clap(long, default_value = "pixelflut")]
     pub shared_memory_name: String,
 }

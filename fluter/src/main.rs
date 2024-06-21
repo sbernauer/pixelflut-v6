@@ -14,7 +14,7 @@ use shared_memory::ShmemConf;
 use tokio::{io::AsyncWriteExt, net::TcpStream, signal, time};
 
 use args::Args;
-use tracing::{error, info, trace};
+use tracing::{debug, info, instrument, trace};
 
 mod args;
 
@@ -25,41 +25,47 @@ const HEADER_SIZE: usize = 2 * std::mem::size_of::<u16>();
 async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
 
+    tracing_subscriber::fmt().init();
+
     // let shm = shm_open(
     //     args.shared_memory_name.into(),
     //     OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
     //     Mode::S_IRUSR | Mode::S_IWUSR, //Permission allow user+rw
     // );
 
-    let shmem_header = ShmemConf::new()
-        .size(HEADER_SIZE)
-        .flink(&args.shared_memory_name)
+    let shared_memory = ShmemConf::new()
+        // .size(HEADER_SIZE)
+        .os_id(&args.shared_memory_name)
         .open()
         .with_context(|| {
             format!(
-                "Failed to open shared memory with name at location {}. Is the backend running?",
-                args.shared_memory_name
+                "Failed to open shared memory with the OS id \"{}\" (propably at at location /dev/shm/{}). Is the backend running?",
+                args.shared_memory_name, args.shared_memory_name
             )
         })?;
 
-    if shmem_header.len() < HEADER_SIZE {
+    debug!(size = shared_memory.len(), "Loaded shared memory");
+    if shared_memory.len() < HEADER_SIZE {
         bail!(
             "Invalid shared memory length. It needs to have at least a length of {HEADER_SIZE} bytes for the header,
                 but it only has {} bytes.",
-            shmem_header.len());
+                shared_memory.len());
     }
-    let width = unsafe { (*shmem_header.as_ptr() as *const u16).read() };
-    let height = unsafe { (*shmem_header.as_ptr() as *const u16).add(1).read() };
+    let size_ptr = shared_memory.as_ptr() as *const u16;
+    let width = unsafe { *size_ptr };
+    let height = unsafe { *size_ptr.add(1) };
+
+    if width == 0 || height == 0 {
+        bail!("The size of the framebuffer was ({width}, {height}). The axis need to be non-null");
+    }
     info!(width, height, "Found existing framebuffer");
 
     let fb: &mut [u32] = unsafe {
         slice::from_raw_parts_mut(
-            shmem_header.as_ptr().add(4) as _,
+            shared_memory.as_ptr().add(4) as _,
             width as usize * height as usize,
         )
     };
-
-    dbg!(&fb[..10]);
 
     info!(
         drawing_threads = args.drawing_threads,
@@ -93,6 +99,7 @@ async fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+#[instrument(skip_all, fields(start_x = start_x, start_y = start_y))]
 async fn drawing_thread(
     fb_slice: &mut [u32],
     mut sink: TcpStream,
@@ -102,6 +109,7 @@ async fn drawing_thread(
     width: u16,
     height: u16,
 ) -> Result<()> {
+    debug!(pixels = fb_slice.len(), "Starting fluting pixels");
     let mut interval = time::interval(Duration::from_micros(1_000_000 / fps as u64));
 
     loop {
@@ -130,8 +138,8 @@ async fn drawing_thread(
                 x = 0;
                 y += 1;
                 if y >= height {
-                    error!("x and y run over the fb bounds. This should not happen, as no thread should get work to do that");
-                    break;
+                    // warn!(x, y, width, height, "x and y run over the fb bounds. This should not happen, as no thread should get work to do that");
+                    // break;
                 }
             }
         }
