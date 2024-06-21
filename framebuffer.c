@@ -23,7 +23,8 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
         return errno;
     }
 
-    int expected_shared_memory_size = width * height * sizeof(uint32_t);
+    int expected_shared_memory_size = 2 * sizeof(uint16_t) /* header */
+        + width * height * sizeof(uint32_t) /* pixels */;
 
     if (shared_memory_stats.st_size == 0) {
         // Shared memory was freshly created (with size 0), we need to initilaize it
