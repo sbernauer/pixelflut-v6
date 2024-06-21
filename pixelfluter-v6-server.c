@@ -1,14 +1,21 @@
-#include <stdint.h>
-#include <stdlib.h>
+#include <argp.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <locale.h>
-#include <sys/time.h>
-#include <argp.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <pthread.h>
+#include <rte_cycles.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
-#include <rte_cycles.h>
 #include <rte_lcore.h>
 #include <rte_mbuf.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include "framebuffer.h"
 
@@ -20,6 +27,8 @@
 #define BURST_SIZE 32
 
 #define STATS_INTERVAL_MS 1000
+
+static int one = 1;
 
 static struct argp_option options[] = {
     {"width",  'w', "pixels", 0,  "Width of the drawing surface in pixels" },
@@ -204,6 +213,15 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
                     "received %'lu packets (%'lu bytes), dropped rx %'lu, ierrors %'lu, rx_nombuf %'lu, q_ipackets %'lu\n",
                     port_id, eth_stats.opackets, eth_stats.obytes, eth_stats.ipackets, eth_stats.ibytes, eth_stats.imissed,
                     eth_stats.ierrors, eth_stats.rx_nombuf, eth_stats.q_ipackets[0]);
+
+                printf("Current pixels:\n[");
+                for (int x = 0; x < 10; x++) {
+                    for (int y = 0; y < 10; y++) {
+                        printf("%08x, ", fb_get(fb, x, y));
+                    }
+                    printf("]\n[");
+                }
+                printf("]\n");
             }
         }
     }
@@ -212,6 +230,54 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
     // rte_flow_flush(port_id, &error);
     rte_eth_dev_stop(port_id);
     rte_eth_dev_close(port_id);
+}
+
+struct fluter_thread_args {
+    struct framebuffer* fb;
+    int target_fps;
+};
+
+void *fluter_thread(void *vargp) {
+    struct fluter_thread_args *args = (struct fluter_thread_args *)vargp;
+
+    int err = 0;
+    int sock;
+
+// Thanks to https://github.com/tobleminer/sturmflut!
+reconnect:
+    printf("Opening socket\n");
+	sock = socket(AF_INET, SOCK_STREAM, 0);
+	if(sock < 0) {
+        printf("Failed to open socket: %s\n", strerror(-err));
+		err = sock;
+		goto fail;
+	}
+
+    struct sockaddr_in servaddr;
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    servaddr.sin_port = htons(1234);
+
+    if ((err = connect(sock, (struct sockaddr*)&servaddr, sizeof(servaddr)))) {
+        printf("Connection with the server failed: %s\n", strerror(-err));
+		err = sock;
+		goto fail;
+    } else {
+        printf("Connected to the server..\n");
+    }
+
+fail:
+	shutdown(sock, SHUT_RDWR);
+	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(int));
+	close(sock);
+	// We don't do that here
+    // doshutdown(err);
+	return NULL;
+newsocket:
+	shutdown(sock, SHUT_RDWR);
+	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(int));
+	close(sock);
+	goto reconnect;
 }
 
 // The main function, which does initialization and calls the per-lcore functions
@@ -230,37 +296,44 @@ int main(int argc, char *argv[]) {
     arguments.height = 1080;
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
-    int err = 0;
+    struct rte_mempool *mbuf_pool;
+    unsigned nb_ports;
+    uint16_t portid;
+
+    // nb_ports = rte_eth_dev_count_avail();
+    // printf("Detected %u ports\n", nb_ports);
+    // if (nb_ports != 1)
+    //     rte_exit(EXIT_FAILURE, "Error: currently only a single port is supported, you have %d ports\n", nb_ports);
+
+    // // Allocates mempool to hold the mbufs
+    // mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", NUM_MBUFS * nb_ports,
+    //     MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+    // if (mbuf_pool == NULL)
+    //     rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
+
+    // // Initializing all ports
+    // RTE_ETH_FOREACH_DEV(portid)
+    //     if (port_init(portid, mbuf_pool) != 0)
+    //         rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu16 "\n",
+    //                 portid);
+
+    // if (rte_lcore_count() > 1)
+    //     printf("\nWARNING: Too many lcores enabled. Only 1 used.\n");
 
     struct framebuffer* fb;
+    int err = 0;
     if((err = fb_alloc(&fb, arguments.width, arguments.height))) {
 		fprintf(stderr, "Failed to allocate framebuffer: %s\n", strerror(-err));
         return err;
 	}
 
-    struct rte_mempool *mbuf_pool;
-    unsigned nb_ports;
-    uint16_t portid;
-
-    nb_ports = rte_eth_dev_count_avail();
-    printf("Detected %u ports\n", nb_ports);
-    if (nb_ports != 1)
-        rte_exit(EXIT_FAILURE, "Error: currently only a single port is supported, you have %d ports\n", nb_ports);
-
-    // Allocates mempool to hold the mbufs
-    mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", NUM_MBUFS * nb_ports,
-        MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
-    if (mbuf_pool == NULL)
-        rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
-
-    // Initializing all ports
-    RTE_ETH_FOREACH_DEV(portid)
-        if (port_init(portid, mbuf_pool) != 0)
-            rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu16 "\n",
-                    portid);
-
-    if (rte_lcore_count() > 1)
-        printf("\nWARNING: Too many lcores enabled. Only 1 used.\n");
+    pthread_t thread_id;
+    if((err = pthread_create(&thread_id, NULL, fluter_thread, NULL))) {
+		fprintf(stderr, "Failed to create fluter thread: %s\n", strerror(-err));
+        return err;
+	}
+    pthread_join(thread_id, NULL);
+    printf("Thread finished\n");
 
     // Call lcore_main on the main core only. Called on single lcore
     struct main_thread_args args;
