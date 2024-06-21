@@ -4,6 +4,7 @@
 #include <locale.h>
 #include <sys/time.h>
 #include <argp.h>
+#include <unistd.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_cycles.h>
@@ -22,13 +23,16 @@
 #define STATS_INTERVAL_MS 1000
 
 static struct argp_option options[] = {
-    {"width",  'w', "pixels", 0,  "Width of the drawing surface in pixels" },
-    {"height", 'h', "pixels", 0,  "Height of the drawing surface in pixels"},
+    {"width",  'w', "pixels", 0,  "Width of the drawing surface in pixels (default 1920)" },
+    {"height", 'h', "pixels", 0,  "Height of the drawing surface in pixels (default 1080)"},
+    {"shared-memory-name", 's', "name", 0, "Name of the shared memory. Usually it will be created at /dev/shm/<name> (default pixelflut)"},
     {0}
 };
+
 struct arguments {
     uint16_t width;
     uint16_t height;
+    char* shared_memory_name;
 };
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -42,6 +46,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
       break;
     case 'h':
       arguments->height = (uint16_t) strtol(arg, NULL, 10);
+      break;
+    case 's':
+      arguments->shared_memory_name = arg;
       break;
 
     default:
@@ -228,15 +235,20 @@ int main(int argc, char *argv[]) {
     struct arguments arguments = {0};
     arguments.width = 1920;
     arguments.height = 1080;
+    arguments.shared_memory_name = "/pixelflut";
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
     int err = 0;
 
     struct framebuffer* fb;
-    if((err = fb_alloc(&fb, arguments.width, arguments.height))) {
-		fprintf(stderr, "Failed to allocate framebuffer: %s\n", strerror(-err));
+    if((err = create_fb(&fb, arguments.width, arguments.height, arguments.shared_memory_name))) {
+		fprintf(stderr, "Failed to allocate framebuffer: %s\n", strerror(err));
         return err;
 	}
+
+    // while (true) {
+    //     sleep(1000);
+    // }
 
     struct rte_mempool *mbuf_pool;
     unsigned nb_ports;
@@ -259,8 +271,9 @@ int main(int argc, char *argv[]) {
             rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu16 "\n",
                     portid);
 
-    if (rte_lcore_count() > 1)
+    if (rte_lcore_count() > 1) {
         printf("\nWARNING: Too many lcores enabled. Only 1 used.\n");
+    }
 
     // Call lcore_main on the main core only. Called on single lcore
     struct main_thread_args args;
@@ -273,6 +286,8 @@ int main(int argc, char *argv[]) {
 
     // Clean up the EAL
     rte_eal_cleanup();
+
+    // TODO: Close shared memory again
 
     return 0;
 }
