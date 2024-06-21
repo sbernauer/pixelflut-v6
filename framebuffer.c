@@ -35,9 +35,10 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
         }
     } else if (shared_memory_stats.st_size != expected_shared_memory_size) {
         printf("Found existing shared memory with size of %lu bytes. However, I expected it to be of size %u, as the"
-            "framebuffer has (%u, %u) pixels. The Pixelflut backend and frontend seem to use different resolutions!"
+            "framebuffer has (%u, %u) pixels. The Pixelflut backend and frontend seem to use different resolutions! "
             "In case you want to re-size your existing framebuffer please execute 'rm /dev/shm/%s'\n",
             shared_memory_stats.st_size, expected_shared_memory_size, width, height, shared_memory_name);
+        return EINVAL;
     } else {
         printf("Using existing shared memory of correct size\n");
     }
@@ -45,8 +46,8 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
     struct framebuffer* fb;
     fb = mmap(NULL, expected_shared_memory_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (fb == MAP_FAILED) {
-            printf("Failed to mmap the the shared memory with name %s: %s\n", shared_memory_name, strerror(errno));
-            return errno;
+        printf("Failed to mmap the the shared memory with name %s: %s\n", shared_memory_name, strerror(errno));
+        return errno;
     }
 
     printf("Created framebuffer of size (%u,%u) backed by shared memory with the name %s\n",
