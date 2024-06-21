@@ -246,10 +246,6 @@ int main(int argc, char *argv[]) {
         return err;
 	}
 
-    // while (true) {
-    //     sleep(1000);
-    // }
-
     struct rte_mempool *mbuf_pool;
     unsigned nb_ports;
     uint16_t portid;

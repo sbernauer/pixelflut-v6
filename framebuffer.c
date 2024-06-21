@@ -52,6 +52,7 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
 
     fb->width = width;
     fb->height = height;
+    fb->pixels = (uint32_t*)(fb + 2 * sizeof(uint32_t));
 
     printf("Created framebuffer of size (%u,%u) backed by shared memory with the name %s\n",
         width, height, shared_memory_name);
