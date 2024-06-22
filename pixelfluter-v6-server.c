@@ -246,6 +246,19 @@ int main(int argc, char *argv[]) {
         return err;
 	}
 
+    // uint32_t rgb;
+    // while (true) {
+    //     srand(time(NULL));
+    //     rgb = rand();
+    //     for (int x = 0; x < arguments.width; x++) {
+    //         for (int y = 0; y < arguments.height; y++) {
+    //             fb_set(fb, x, y, rgb);
+    //         }
+    //     }
+    //     printf("Painted random color\n");
+    //     sleep(5);
+    // }
+
     struct rte_mempool *mbuf_pool;
     unsigned nb_ports;
     uint16_t portid;

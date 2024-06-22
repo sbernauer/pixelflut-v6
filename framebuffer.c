@@ -23,11 +23,11 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
         return errno;
     }
 
-    int expected_shared_memory_size = 2 * sizeof(uint16_t) /* header */
+    int expected_shared_memory_size = 2 * sizeof(uint16_t) /* size header */
         + width * height * sizeof(uint32_t) /* pixels */;
 
     if (shared_memory_stats.st_size == 0) {
-        // Shared memory was freshly created (with size 0), we need to initilaize it
+        // Shared memory was freshly created (with size 0), we need to initialize it
         if (ftruncate(fd, expected_shared_memory_size) == -1) {
             printf("Failed to resize the shared memory with name %s to size of %u bytes: %s\n",
                 shared_memory_name, expected_shared_memory_size, strerror(errno));
@@ -43,16 +43,36 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
         printf("Using existing shared memory of correct size\n");
     }
 
-    struct framebuffer* fb;
-    fb = mmap(NULL, expected_shared_memory_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (fb == MAP_FAILED) {
+    char* shared_memory;
+    shared_memory = mmap(NULL, expected_shared_memory_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (shared_memory == MAP_FAILED) {
         printf("Failed to mmap the the shared memory with name %s: %s\n", shared_memory_name, strerror(errno));
         return errno;
     }
 
+    // We need to set width and height so that other tools (e.g. the frontend) can detect the framebuffer size
+    uint16_t* width_ptr = (uint16_t*)shared_memory;
+    if (*width_ptr == 0) {
+        // Shared memory was freshly created, we need to initialize it
+        *width_ptr = width;
+    } else if (*width_ptr != width) {
+        printf("Found existing shared memory, but it has the width %u, while I expected %u\n", *width_ptr, width);
+        return EINVAL;
+    }
+
+    uint16_t* height_ptr = (uint16_t*)(shared_memory + 2);
+    if (*height_ptr == 0) {
+        // Shared memory was freshly created, we need to initialize it
+        *height_ptr = height;
+    } else if (*height_ptr != height) {
+        printf("Found existing shared memory, but it has the height %u, while I expected %u\n", *height_ptr, height);
+        return EINVAL;
+    }
+
+    struct framebuffer* fb = malloc(sizeof(struct framebuffer));
     fb->width = width;
     fb->height = height;
-    fb->pixels = (uint32_t*)(fb + 2 * sizeof(uint32_t));
+    fb->pixels = (uint32_t*)(shared_memory + 2 * sizeof(uint16_t) /* size header */);
 
     printf("Created framebuffer of size (%u,%u) backed by shared memory with the name %s\n",
         width, height, shared_memory_name);

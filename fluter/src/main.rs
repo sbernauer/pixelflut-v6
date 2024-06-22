@@ -123,7 +123,7 @@ async fn drawing_thread(
 
             // Only send pixels that
             // 1.) The server is responsible for
-            // 2.) Have changed sind the last flush
+            // 2.) Have changed since the last flush
             if rgb != 0 {
                 sink.write_all(format!("PX {x} {y} {rgb:06x}\n").as_bytes())
                     .await
