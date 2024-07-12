@@ -1,24 +1,19 @@
-use std::{slice, time::Duration};
+use std::slice;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-// use nix::{
-//     fcntl::OFlag,
-//     libc::O_CREAT,
-//     sys::{
-//         mman::{mmap, munmap, shm_open, shm_unlink, MapFlags, ProtFlags},
-//         stat::Mode,
-//     },
-// };
 use shared_memory::ShmemConf;
-use tokio::{io::AsyncWriteExt, net::TcpStream, signal, time};
+use tokio::{net::TcpStream, signal};
 
 use args::Args;
-use tracing::{debug, info, instrument, trace};
+use tracing::{debug, info, warn};
+
+use crate::drawer::drawing_thread;
 
 mod args;
+mod drawer;
 
-// Width and height
+// Width and height, both of type u16.
 const HEADER_SIZE: usize = 2 * std::mem::size_of::<u16>();
 
 #[tokio::main]
@@ -27,19 +22,13 @@ async fn main() -> Result<(), anyhow::Error> {
 
     tracing_subscriber::fmt().init();
 
-    // let shm = shm_open(
-    //     args.shared_memory_name.into(),
-    //     OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
-    //     Mode::S_IRUSR | Mode::S_IWUSR, //Permission allow user+rw
-    // );
-
     let shared_memory = ShmemConf::new()
         // .size(HEADER_SIZE)
         .os_id(&args.shared_memory_name)
         .open()
         .with_context(|| {
             format!(
-                "Failed to open shared memory with the OS id \"{}\" (propably at at location /dev/shm/{}). Is the backend running?",
+                "Failed to open shared memory with the OS id \"{}\" (probably at location /dev/shm/{}). Is the backend running?",
                 args.shared_memory_name, args.shared_memory_name
             )
         })?;
@@ -56,9 +45,17 @@ async fn main() -> Result<(), anyhow::Error> {
     let height = unsafe { *size_ptr.add(1) };
 
     if width == 0 || height == 0 {
-        bail!("The size of the framebuffer was ({width}, {height}). The axis need to be non-null");
+        bail!(
+            "The size of the framebuffer was ({width}, {height}). Both values need to be non-null"
+        );
     }
     info!(width, height, "Found existing framebuffer");
+
+    warn!(
+        width, height,
+        "I should ask the server what resolution it is using (using the SIZE command) and check if they are the same, \
+        but I'm lazy. Until this is implemented, it is your responsibility to make sure the resolutions match"
+    );
 
     let fb: &mut [u32] = unsafe {
         slice::from_raw_parts_mut(
@@ -88,7 +85,14 @@ async fn main() -> Result<(), anyhow::Error> {
             })?;
 
         tokio::spawn(drawing_thread(
-            fb_slice, sink, args.fps, start_x, start_y, width, height,
+            fb_slice,
+            sink,
+            args.transmit_mode.clone(),
+            args.fps,
+            start_x,
+            start_y,
+            width,
+            height,
         ));
     }
 
@@ -97,65 +101,4 @@ async fn main() -> Result<(), anyhow::Error> {
     info!("Exiting...");
 
     Ok(())
-}
-
-#[instrument(skip_all, fields(start_x = start_x, start_y = start_y))]
-async fn drawing_thread(
-    fb_slice: &mut [u32],
-    mut sink: TcpStream,
-    fps: u32,
-    start_x: u16,
-    start_y: u16,
-    width: u16,
-    height: u16,
-) -> Result<()> {
-    debug!(pixels = fb_slice.len(), "Starting fluting pixels");
-    let mut interval = time::interval(Duration::from_micros(1_000_000 / fps as u64));
-
-    loop {
-        let start = std::time::Instant::now();
-        let mut x = start_x;
-        let mut y = start_y;
-
-        for rgba in fb_slice.iter_mut() {
-            // Ignore alpha channel
-            let rgb = *rgba >> 8;
-
-            // Only send pixels that
-            // 1.) The server is responsible for
-            // 2.) Have changed since the last flush
-            if rgb != 0 {
-                sink.write_all(format!("PX {x} {y} {rgb:06x}\n").as_bytes())
-                    .await
-                    .context("Failed to write to Pixelflut sink")?;
-
-                // Reset color back, so that we don't send the same color twice
-                *rgba = 0;
-            }
-
-            x += 1;
-            if x >= width {
-                x = 0;
-                y += 1;
-                if y >= height {
-                    // warn!(x, y, width, height, "x and y run over the fb bounds. This should not happen, as no thread should get work to do that");
-                    // break;
-                }
-            }
-        }
-
-        let elapsed = start.elapsed();
-        trace!(
-            ?elapsed,
-            duty_cycle =
-                (elapsed.as_micros() as f32 / interval.period().as_micros() as f32 * 100.0).ceil(),
-            "Loop completed",
-        );
-
-        sink.flush()
-            .await
-            .context("Failed to flush to Pixelflut sink")?;
-
-        interval.tick().await;
-    }
 }

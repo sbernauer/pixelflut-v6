@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -13,4 +13,14 @@ pub struct Args {
 
     #[clap(long, default_value = "pixelflut")]
     pub shared_memory_name: String,
+
+    #[clap(long, default_value = "binary-sync")]
+    pub transmit_mode: TransmitMode,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum TransmitMode {
+    // ASCII,
+    BinaryPixel,
+    BinarySync,
 }
