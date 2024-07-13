@@ -70,9 +70,15 @@ pub async fn drawing_thread(
                 }
             }
             TransmitMode::BinarySync => {
-                sink.write_all("PXMULTI".as_bytes()).await.unwrap();
-                sink.write_u16_le(start_x).await.unwrap();
-                sink.write_u16_le(start_y).await.unwrap();
+                sink.write_all("PXMULTI".as_bytes())
+                    .await
+                    .context("Failed to write to Pixelflut sink")?;
+                sink.write_u16_le(start_x)
+                    .await
+                    .context("Failed to write to Pixelflut sink")?;
+                sink.write_u16_le(start_y)
+                    .await
+                    .context("Failed to write to Pixelflut sink")?;
                 sink.write_u32_le(
                     fb_slice
                         .len()
