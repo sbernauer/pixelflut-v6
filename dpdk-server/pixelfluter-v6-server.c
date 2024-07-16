@@ -22,6 +22,10 @@
 
 #define STATS_INTERVAL_MS 1000
 
+#define MSG_SIZE_REQUEST 0xaa
+#define MSG_SIZE_RESPONSE 0xbb
+#define MSG_SET_PIXEL 0xcc
+
 static struct argp_option options[] = {
     {"width",  'w', "pixels", 0,  "Width of the drawing surface in pixels (default 1920)" },
     {"height", 'h', "pixels", 0,  "Height of the drawing surface in pixels (default 1080)"},
@@ -165,29 +169,51 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
                 "\tPerformance will not be optimal.\n", port);
 
     struct rte_ether_hdr *eth_hdr;
+    struct rte_ipv4_hdr *ipv4_hdr;
     struct rte_ipv6_hdr *ipv6_hdr;
+    struct rte_icmp_hdr *icmp_hdr;
 
+    uint8_t msg_kind;
     uint16_t x, y;
-    uint32_t rgba;
+    uint32_t rgba, icmp_payload_len;
 
     struct rte_mbuf * pkt[BURST_SIZE];
     int i;
     for (;;) {
         nb_rx = rte_eth_rx_burst(port_id, /* queue_id */ 0, pkt, BURST_SIZE);
-
-        // printf("Received %u packets\n", nb_rx);
-        // rte_delay_ms(100);
         for (i = 0; i < nb_rx; i++) {
             eth_hdr = rte_pktmbuf_mtod(pkt[i], struct rte_ether_hdr *);
-            if (eth_hdr->ether_type == htons(RTE_ETHER_TYPE_IPV6)) {
+
+            if (eth_hdr->ether_type == htons(RTE_ETHER_TYPE_IPV4)) {
+                ipv4_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_ipv4_hdr*, sizeof(struct rte_ether_hdr));
+                if (ipv4_hdr->next_proto_id == IPPROTO_ICMP) {
+                    icmp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_icmp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
+                    if (icmp_hdr->icmp_type == RTE_IP_ICMP_ECHO_REQUEST && icmp_hdr->icmp_code == 0) {
+                        msg_kind = *rte_pktmbuf_mtod_offset(pkt[i], uint8_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr));
+                        if (msg_kind == MSG_SET_PIXEL) {
+                            x = ntohs(*rte_pktmbuf_mtod_offset(pkt[i], uint16_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr) + 1));
+                            y = ntohs(*rte_pktmbuf_mtod_offset(pkt[i], uint16_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr) + 3));
+
+                            icmp_payload_len = pkt[i]->pkt_len - sizeof(struct rte_ether_hdr) - sizeof(struct rte_ipv4_hdr) - sizeof(struct rte_icmp_hdr);
+                            // Packet is only sending rgb
+                            if (icmp_payload_len == 8) {
+                                rgba = *rte_pktmbuf_mtod_offset(pkt[i], uint32_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr) + 5);
+                                fb_set(fb, x, y, rgba);
+                            // Packet is sending rgba
+                            } else if (icmp_payload_len == 9) {
+                                // TODO: Implement alpha in SET_PIXEL command
+                            }
+                        }
+                    }
+                }
+            } else if (eth_hdr->ether_type == htons(RTE_ETHER_TYPE_IPV6)) {
                 ipv6_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_ipv6_hdr*, sizeof(struct rte_ether_hdr));
+
                 x = ((uint16_t)ipv6_hdr->dst_addr[8] << 8) + (uint16_t)ipv6_hdr->dst_addr[9];
                 y = ((uint16_t)ipv6_hdr->dst_addr[10] << 8) + (uint16_t)ipv6_hdr->dst_addr[11];
                 rgba = ((uint32_t)ipv6_hdr->dst_addr[12] << 24) + ((uint32_t)ipv6_hdr->dst_addr[13] << 16) + ((uint32_t)ipv6_hdr->dst_addr[14] << 8);
+                fb_set(fb, x, y, rgba);
             }
-
-            // printf("Got packet with (%u, %u) and rgba %010x\n", x, y, rgba);
-            fb_set(fb, x, y, rgba);
 
             rte_pktmbuf_free(pkt[i]);
         }
