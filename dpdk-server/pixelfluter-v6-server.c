@@ -168,6 +168,7 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             printf("WARNING, port %u is on remote NUMA node to polling thread.\n"
                 "\tPerformance will not be optimal.\n", port);
 
+    bool was_pingxelflut;
     struct rte_ether_hdr *eth_hdr;
     struct rte_ipv4_hdr *ipv4_hdr;
     struct rte_ipv6_hdr *ipv6_hdr;
@@ -209,10 +210,44 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             } else if (eth_hdr->ether_type == htons(RTE_ETHER_TYPE_IPV6)) {
                 ipv6_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_ipv6_hdr*, sizeof(struct rte_ether_hdr));
 
-                x = ((uint16_t)ipv6_hdr->dst_addr[8] << 8) + (uint16_t)ipv6_hdr->dst_addr[9];
-                y = ((uint16_t)ipv6_hdr->dst_addr[10] << 8) + (uint16_t)ipv6_hdr->dst_addr[11];
-                rgba = ((uint32_t)ipv6_hdr->dst_addr[12] << 24) + ((uint32_t)ipv6_hdr->dst_addr[13] << 16) + ((uint32_t)ipv6_hdr->dst_addr[14] << 8);
-                fb_set(fb, x, y, rgba);
+                // As we support both (pingxelflut (ICMP) and pixelflut v6 traffic, we first detect if it's pingxelflut
+                // and only use pixelflut v6 in case it is not)
+                was_pingxelflut = false;
+
+                if (ipv6_hdr->proto == 58 /* ICMPv6 */) {
+                    icmp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_icmp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr));
+                    if (icmp_hdr->icmp_type == RTE_ICMP6_ECHO_REQUEST && icmp_hdr->icmp_code == 0) {
+                        msg_kind = *rte_pktmbuf_mtod_offset(pkt[i], uint8_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr));
+                        if (msg_kind == MSG_SET_PIXEL) {
+                            was_pingxelflut = true;
+
+                            x = ntohs(*rte_pktmbuf_mtod_offset(pkt[i], uint16_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr) + 1));
+                            y = ntohs(*rte_pktmbuf_mtod_offset(pkt[i], uint16_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr) + 3));
+
+                            icmp_payload_len = pkt[i]->pkt_len - sizeof(struct rte_ether_hdr) - sizeof(struct rte_ipv6_hdr) - sizeof(struct rte_icmp_hdr);
+                            // Packet is only sending rgb
+                            if (icmp_payload_len == 8) {
+                                rgba = *rte_pktmbuf_mtod_offset(pkt[i], uint32_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr) + 5);
+                                fb_set(fb, x, y, rgba);
+                            // Packet is sending rgba
+                            } else if (icmp_payload_len == 9) {
+                                // TODO: Implement alpha in SET_PIXEL command
+                            }
+                        } else if (msg_kind == MSG_SIZE_REQUEST) {
+                            was_pingxelflut = true;
+                            // TODO: Implement reading of screen size flow
+                        } else if (msg_kind == MSG_SIZE_RESPONSE) {
+                            was_pingxelflut = true;
+                        }
+                    }
+                }
+
+                if (!was_pingxelflut) {
+                    x = ((uint16_t)ipv6_hdr->dst_addr[8] << 8) + (uint16_t)ipv6_hdr->dst_addr[9];
+                    y = ((uint16_t)ipv6_hdr->dst_addr[10] << 8) + (uint16_t)ipv6_hdr->dst_addr[11];
+                    rgba = ((uint32_t)ipv6_hdr->dst_addr[12] << 24) + ((uint32_t)ipv6_hdr->dst_addr[13] << 16) + ((uint32_t)ipv6_hdr->dst_addr[14] << 8);
+                    fb_set(fb, x, y, rgba);
+                }
             }
 
             rte_pktmbuf_free(pkt[i]);
