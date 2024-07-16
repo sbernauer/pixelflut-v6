@@ -1,13 +1,11 @@
 [package]
-name = "fluter"
+name = "pixel-fluter"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
-memmap2 = "0.9"
-# nix = { version = "0.29.0", features = ["mman", "fs"] }
 shared_memory = { version = "0.12", features = ["logging"] }
 tokio = { version = "1.38", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "signal", "time"] }
 tracing = "0.1"
