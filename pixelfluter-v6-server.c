@@ -247,16 +247,16 @@ int main(int argc, char *argv[]) {
 	}
 
     // uint32_t rgb;
+    // srand(time(NULL));
     // while (true) {
-    //     srand(time(NULL));
     //     rgb = rand();
-    //     for (int x = 0; x < arguments.width; x++) {
-    //         for (int y = 0; y < arguments.height; y++) {
+    //     for (int x = 0; x < arguments.width / 2; x++) {
+    //         for (int y = 0; y < arguments.height / 1.5; y++) {
     //             fb_set(fb, x, y, rgb);
     //         }
     //     }
     //     printf("Painted random color\n");
-    //     sleep(5);
+    //     usleep(500000);
     // }
 
     struct rte_mempool *mbuf_pool;
