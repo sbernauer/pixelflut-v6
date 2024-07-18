@@ -2,4 +2,4 @@
 
 `make`
 
-`sudo build/pixelfluter-v6-client`
+`sudo build/pixelflut-v6-client`

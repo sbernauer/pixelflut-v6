@@ -1,4 +1,4 @@
-SERVER_SOURCES := pixelfluter-v6-server.c framebuffer.c
+SERVER_SOURCES := pixelflut-v6-server.c framebuffer.c
 
 PKGCONF ?= pkg-config
 
@@ -7,7 +7,7 @@ ifneq ($(shell $(PKGCONF) --exists libdpdk && echo 0),0)
 $(error "no installation of DPDK found")
 endif
 
-all: build/pixelfluter-v6-server
+all: build/pixelflut-v6-server
 
 PC_FILE := $(shell $(PKGCONF) --path libdpdk 2>/dev/null)
 # -g is for debugging symbols
@@ -17,7 +17,7 @@ MAGICK_VERSION=$(shell pkg-config --modversion ImageMagick | grep -E -o '^[0-9]+
 
 CFLAGS += -DALLOW_EXPERIMENTAL_API
 
-build/pixelfluter-v6-server: $(SERVER_SOURCES) Makefile $(PC_FILE) | build
+build/pixelflut-v6-server: $(SERVER_SOURCES) Makefile $(PC_FILE) | build
 	$(CC) $(CFLAGS) $(SERVER_SOURCES) -o $@ $(LDFLAGS) $(LDFLAGS_SHARED)
 
 build:

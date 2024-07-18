@@ -61,7 +61,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
   return 0;
 }
 
-const char *argp_program_version = "pixelfluter-v6-server 0.1.0";
+const char *argp_program_version = "pixelflut-v6-server 0.1.0";
 static char doc[] = "Fast pixelflut v6 or pingxelflut server using DPDK";
 static char args_doc[] = "";
 static struct argp argp = { options, parse_opt, args_doc, doc };
