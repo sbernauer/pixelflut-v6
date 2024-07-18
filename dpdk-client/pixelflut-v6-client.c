@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <locale.h>
 #include <sys/time.h>
+#include <arpa/inet.h>
 #include <argp.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
@@ -51,6 +52,29 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
       return ARGP_ERR_UNKNOWN;
     }
   return 0;
+}
+
+static struct rte_ether_addr parse_mac(char *mac_str) {
+    struct rte_ether_addr mac_addr;
+    if (sscanf(mac_str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac_addr.addr_bytes[0], &mac_addr.addr_bytes[1],
+        &mac_addr.addr_bytes[2], &mac_addr.addr_bytes[3],
+        &mac_addr.addr_bytes[4], &mac_addr.addr_bytes[5]) != 6)
+    {
+        fprintf(stderr, "Could not parse MAC address %s\n", mac_str);
+        // TODO: Better error handling
+    }
+
+    return mac_addr;
+}
+
+static struct in6_addr parse_ipv6(char *ipv6_str) {
+    struct in6_addr ipv6_addr;
+    if (inet_pton(AF_INET6, ipv6_str, &ipv6_addr) == 1) {
+        return ipv6_addr;
+    } else {
+        fprintf(stderr, "Could not parse IPv6 address %s\n", ipv6_str);
+        // TODO: Better error handling
+    }
 }
 
 const char *argp_program_version = "pixelflut-v6-client 0.1.0";
@@ -173,21 +197,10 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
         sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_udp_hdr)
     );
 
-    struct rte_ether_addr dst_addr;
-    dst_addr.addr_bytes[0] = 0x14;
-    dst_addr.addr_bytes[1] = 0xa0;
-    dst_addr.addr_bytes[2] = 0xf8;
-    dst_addr.addr_bytes[3] = 0x8b;
-    dst_addr.addr_bytes[4] = 0x1e;
-    dst_addr.addr_bytes[5] = 0xe4;
-
-    struct rte_ether_addr src_addr;
-    src_addr.addr_bytes[0] = 0x14;
-    src_addr.addr_bytes[1] = 0xa0;
-    src_addr.addr_bytes[2] = 0xf8;
-    src_addr.addr_bytes[3] = 0x8b;
-    src_addr.addr_bytes[4] = 0x1e;
-    src_addr.addr_bytes[5] = 0xe3;
+    struct rte_ether_addr dst_mac_addr = parse_mac("14:a0:f8:8b:1e:e4");
+    struct rte_ether_addr src_mac_addr = parse_mac("14:a0:f8:8b:1e:e3");
+    struct in6_addr src_addr = parse_ipv6("fe80::1");
+    struct in6_addr dst_net = parse_ipv6("fe80::");
 
     int x = 0;
     int y = 0;
@@ -202,8 +215,8 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             pkt[i] = rte_pktmbuf_alloc(mbuf_pool);
 
             eth_hdr = rte_pktmbuf_mtod(pkt[i], struct rte_ether_hdr*);
-            eth_hdr->dst_addr = dst_addr;
-            eth_hdr->src_addr = src_addr;
+            eth_hdr->dst_addr = dst_mac_addr;
+            eth_hdr->src_addr = src_mac_addr;
             eth_hdr->ether_type = htons(RTE_ETHER_TYPE_IPV6);
             ipv6_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_ipv6_hdr*, sizeof(struct rte_ether_hdr));
 
@@ -212,32 +225,10 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             ipv6_hdr->proto = 0x11; // UDP
             ipv6_hdr->payload_len = htonl(8);
 
-            ipv6_hdr->src_addr[0] = 0xfe;
-            ipv6_hdr->src_addr[1] = 0x80;
-            ipv6_hdr->src_addr[2] = 0;
-            ipv6_hdr->src_addr[3] = 0;
-            ipv6_hdr->src_addr[4] = 0;
-            ipv6_hdr->src_addr[5] = 0;
-            ipv6_hdr->src_addr[6] = 0;
-            ipv6_hdr->src_addr[7] = 0;
-            ipv6_hdr->src_addr[8] = 0;
-            ipv6_hdr->src_addr[9] = 0;
-            ipv6_hdr->src_addr[10] = 0;
-            ipv6_hdr->src_addr[11] = 0;
-            ipv6_hdr->src_addr[12] = 0;
-            ipv6_hdr->src_addr[13] = 0;
-            ipv6_hdr->src_addr[14] = 0;
-            ipv6_hdr->src_addr[15] = 0x01;
-
-            // Destination /64 IPv6 network
-            ipv6_hdr->dst_addr[0] = 0xfe;
-            ipv6_hdr->dst_addr[1] = 0x80;
-            ipv6_hdr->dst_addr[2] = 0;
-            ipv6_hdr->dst_addr[3] = 0;
-            ipv6_hdr->dst_addr[4] = 0;
-            ipv6_hdr->dst_addr[5] = 0;
-            ipv6_hdr->dst_addr[6] = 0;
-            ipv6_hdr->dst_addr[7] = 0;
+            // Set the whole source IP (128 bit - 16 bytes)
+            memcpy(ipv6_hdr->src_addr, &src_addr, 16);
+            // We only set the /64 network, hence the first 8 bytes
+            memcpy(ipv6_hdr->dst_addr, &dst_net, 8);
 
             // X Coordinate
             ipv6_hdr->dst_addr[8] = x >> 8;
