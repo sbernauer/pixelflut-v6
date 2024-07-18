@@ -30,17 +30,17 @@ pub async fn drawing_thread(
 
     loop {
         let start = std::time::Instant::now();
-        let mut x = start_x;
-        let mut y = start_y;
-
         match transmit_mode {
             TransmitMode::BinaryPixel => {
+                let mut x = start_x;
+                let mut y = start_y;
+
                 for rgba in fb_slice.iter_mut() {
                     // Only send pixels that have changed since the last flush
                     if *rgba != UNSET_COLOR_MARKER {
                         let x_bytes = x.to_le_bytes();
                         let y_bytes = y.to_le_bytes();
-                        let rgba_bytes = rgba.to_be_bytes();
+                        let rgba_bytes = rgba.to_le_bytes();
 
                         sink.write_all(&[
                             b'P',
@@ -52,10 +52,14 @@ pub async fn drawing_thread(
                             rgba_bytes[0],
                             rgba_bytes[1],
                             rgba_bytes[2],
-                            rgba_bytes[3],
+                            0, // We are not sending an alpha value as 1.) we don't have one and 2.) even if we had one,
+                               // we want to draw our screen 100% to the pixelflut canvas.
                         ])
                         .await
                         .context("Failed to write to Pixelflut sink")?;
+
+                        // Reset color back, so that we don't send the same color twice
+                        // *rgba = UNSET_COLOR_MARKER;
                     }
 
                     x += 1;

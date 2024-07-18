@@ -243,9 +243,14 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
                 }
 
                 if (!was_pingxelflut) {
-                    x = ((uint16_t)ipv6_hdr->dst_addr[8] << 8) + (uint16_t)ipv6_hdr->dst_addr[9];
-                    y = ((uint16_t)ipv6_hdr->dst_addr[10] << 8) + (uint16_t)ipv6_hdr->dst_addr[11];
-                    rgba = ((uint32_t)ipv6_hdr->dst_addr[12] << 24) + ((uint32_t)ipv6_hdr->dst_addr[13] << 16) + ((uint32_t)ipv6_hdr->dst_addr[14] << 8);
+                    x = ((uint16_t)ipv6_hdr->dst_addr[8] << 8) | (uint16_t)ipv6_hdr->dst_addr[9];
+                    y = ((uint16_t)ipv6_hdr->dst_addr[10] << 8) | (uint16_t)ipv6_hdr->dst_addr[11];
+                    rgba = (uint32_t)ipv6_hdr->dst_addr[12] << 0 | (uint32_t)ipv6_hdr->dst_addr[13] << 8 | (uint32_t)ipv6_hdr->dst_addr[14] << 16;
+                    // rgba = 0x00ff0000; // blue
+                    // rgba = 0x0000ff00; // green
+                    // rgba = 0x000000ff; // red
+                    // printf("x: %d, y: %d, rgba: %08x\n", x, y, rgba);
+
                     fb_set(fb, x, y, rgba);
                 }
             }
