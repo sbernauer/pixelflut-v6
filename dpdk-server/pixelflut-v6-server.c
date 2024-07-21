@@ -327,7 +327,7 @@ int main(int argc, char *argv[]) {
 
     struct rte_mempool *mbuf_pool;
     unsigned nb_ports;
-    uint16_t portid;
+    uint16_t port_id;
 
     nb_ports = rte_eth_dev_count_avail();
     printf("Detected %u ports\n", nb_ports);
@@ -341,10 +341,10 @@ int main(int argc, char *argv[]) {
         rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
 
     // Initializing all ports
-    RTE_ETH_FOREACH_DEV(portid)
-        if (port_init(portid, mbuf_pool) != 0)
+    RTE_ETH_FOREACH_DEV(port_id)
+        if (port_init(port_id, mbuf_pool) != 0)
             rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu16 "\n",
-                    portid);
+                    port_id);
 
     if (rte_lcore_count() > 1) {
         printf("\nWARNING: Too many lcores enabled. Only 1 used.\n");
