@@ -26,33 +26,14 @@
 
 static struct argp_option options[] = {
     {"image", 'i', "<image-file>", 0,  "Path to image to flut"},
+    {"pingxelflut", 'p', "<ipv6-target>", 0, "Use pingxelflut protocol instead of pixelflut v6, fluting to the target IPv6 address. IPv4 is currently not supported"},
     {0}
 };
 struct arguments {
     char *image_file;
+    bool use_pingxelflut;
+    struct in6_addr pingxelflut_target;
 };
-
-static error_t parse_opt(int key, char *arg, struct argp_state *state) {
-  // Get the input argument from argp_parse, which we know is a pointer to our arguments structure
-  struct arguments *arguments = state->input;
-
-  switch (key)
-    {
-    case 'i':
-      arguments->image_file = arg;
-      break;
-
-    case ARGP_KEY_END:
-        if (arguments->image_file == NULL) {
-            argp_failure(state, 1, 0, "--image required. See --help for more information");
-            exit(ARGP_ERR_UNKNOWN);
-      }
-
-    default:
-      return ARGP_ERR_UNKNOWN;
-    }
-  return 0;
-}
 
 static struct rte_ether_addr parse_mac(char *mac_str) {
     struct rte_ether_addr mac_addr;
@@ -75,6 +56,32 @@ static struct in6_addr parse_ipv6(char *ipv6_str) {
         fprintf(stderr, "Could not parse IPv6 address %s\n", ipv6_str);
         // TODO: Better error handling
     }
+}
+
+static error_t parse_opt(int key, char *arg, struct argp_state *state) {
+  // Get the input argument from argp_parse, which we know is a pointer to our arguments structure
+  struct arguments *arguments = state->input;
+
+  switch (key)
+    {
+    case 'i':
+      arguments->image_file = arg;
+      break;
+    case 'p':
+      arguments->use_pingxelflut = true;
+      arguments->pingxelflut_target = parse_ipv6(arg);
+      break;
+
+    case ARGP_KEY_END:
+        if (arguments->image_file == NULL) {
+            argp_failure(state, 1, 0, "--image required. See --help for more information");
+            exit(ARGP_ERR_UNKNOWN);
+      }
+
+    default:
+      return ARGP_ERR_UNKNOWN;
+    }
+  return 0;
 }
 
 const char *argp_program_version = "pixelflut-v6-client 0.1.0";
@@ -159,6 +166,8 @@ static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
 
 struct main_thread_args {
     struct fluter_image *fluter_image;
+    bool use_pingxelflut;
+    struct in6_addr pingxelflut_target;
     struct rte_mempool *mbuf_pool;
     int port_id;
 };
@@ -178,6 +187,23 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
     struct timeval last_stats_report, now;
     long elapsed_millis;
 
+    struct rte_ether_addr dst_mac_addr = parse_mac("14:a0:f8:8b:1e:e4");
+    struct rte_ether_addr src_mac_addr = parse_mac("14:a0:f8:8b:1e:e3");
+    struct in6_addr src_addr = parse_ipv6("fe80::1");
+    struct in6_addr dst_net = parse_ipv6("fe80::");
+
+    char src_addr_str[INET6_ADDRSTRLEN];
+    char dst_addr_str[INET6_ADDRSTRLEN];
+    if (!args->use_pingxelflut) {
+        inet_ntop(AF_INET6, &src_addr, src_addr_str, INET6_ADDRSTRLEN);
+        inet_ntop(AF_INET6, &dst_net, dst_addr_str, INET6_ADDRSTRLEN);
+        printf("Using pixelflut v6 protocol to flut from %s to %s/64", src_addr_str, dst_addr_str);
+    } else {
+        inet_ntop(AF_INET6, &src_addr, src_addr_str, INET6_ADDRSTRLEN);
+        inet_ntop(AF_INET6, &args->pingxelflut_target, dst_addr_str, INET6_ADDRSTRLEN);
+        printf("Using pingxelflut protocol to flut from %s to %s", src_addr_str, dst_addr_str);
+    }
+
     gettimeofday(&last_stats_report, NULL);
 
     /*
@@ -191,19 +217,20 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
     struct rte_ether_hdr *eth_hdr;
     struct rte_ipv6_hdr *ipv6_hdr;
     struct rte_udp_hdr *udp_hdr;
+    struct rte_icmp_hdr *icmp_hdr;
 
-    uint16_t pkt_size = MAX(
-        64, // The minimum packet size sent/received through Ethernet is always 64 bytes according to Ethernet specification
-        sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_udp_hdr)
-    );
+    uint16_t pkt_size;
+    if (!args->use_pingxelflut) {
+        pkt_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_udp_hdr);
+    } else {
+        // 8 bytes for command, x, y, r, g and b (note we don't send a [alpha])
+        pkt_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr) + 8;
+    }
+    // The minimum packet size sent/received through Ethernet is always 64 bytes according to Ethernet specification
+    pkt_size = MAX(64, pkt_size);
 
-    struct rte_ether_addr dst_mac_addr = parse_mac("14:a0:f8:8b:1e:e4");
-    struct rte_ether_addr src_mac_addr = parse_mac("14:a0:f8:8b:1e:e3");
-    struct in6_addr src_addr = parse_ipv6("fe80::1");
-    struct in6_addr dst_net = parse_ipv6("fe80::");
-
-    int x = 0;
-    int y = 0;
+    uint16_t x = 0;
+    uint16_t y = 0;
     int pixel_index = 0;
 
     printf("\nCore %u sending %u byte packets on port %u. [Ctrl+C to quit]\n", rte_lcore_id(), pkt_size, port_id);
@@ -220,40 +247,65 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             eth_hdr->ether_type = htons(RTE_ETHER_TYPE_IPV6);
             ipv6_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_ipv6_hdr*, sizeof(struct rte_ether_hdr));
 
-            ipv6_hdr->vtc_flow = htonl(6 << 28); // IP version 6
-            ipv6_hdr->hop_limits = 0xff;
-            ipv6_hdr->proto = 0x11; // UDP
-            ipv6_hdr->payload_len = htonl(8);
+            if (!args->use_pingxelflut) {
+                ipv6_hdr->vtc_flow = htonl(6 << 28); // IP version 6
+                ipv6_hdr->hop_limits = 0xff;
+                ipv6_hdr->proto = 0x11; // UDP
+                ipv6_hdr->payload_len = htonl(8); // TODO: Can we set this to sizeof(struct rte_udp_hdr)?
 
-            // Set the whole source IP (128 bit - 16 bytes)
-            memcpy(ipv6_hdr->src_addr, &src_addr, 16);
-            // We only set the /64 network, hence the first 8 bytes
-            memcpy(ipv6_hdr->dst_addr, &dst_net, 8);
+                // Set the whole source IP (128 bit - 16 bytes)
+                memcpy(ipv6_hdr->src_addr, &src_addr, 16);
+                // We only set the /64 network, hence the first 8 bytes
+                memcpy(ipv6_hdr->dst_addr, &dst_net, 8);
 
-            // X Coordinate
-            ipv6_hdr->dst_addr[8] = x >> 8;
-            ipv6_hdr->dst_addr[9] = x;
+                // X Coordinate
+                ipv6_hdr->dst_addr[8] = x >> 8;
+                ipv6_hdr->dst_addr[9] = x;
 
-            // Y Coordinate
-            ipv6_hdr->dst_addr[10] = y >> 8;
-            ipv6_hdr->dst_addr[11] = y;
+                // Y Coordinate
+                ipv6_hdr->dst_addr[10] = y >> 8;
+                ipv6_hdr->dst_addr[11] = y;
 
-            // Color in rgb
-            pixel_index = y * width + x;
-            ipv6_hdr->dst_addr[12] = fluter_image->pixels[pixel_index] >> 0;
-            ipv6_hdr->dst_addr[13] = fluter_image->pixels[pixel_index] >> 8;
-            ipv6_hdr->dst_addr[14] = fluter_image->pixels[pixel_index] >> 16;
-            ipv6_hdr->dst_addr[15] = fluter_image->pixels[pixel_index] >> 24;
+                // Color in rgb
+                pixel_index = y * width + x;
+                ipv6_hdr->dst_addr[12] = fluter_image->pixels[pixel_index] >> 0;
+                ipv6_hdr->dst_addr[13] = fluter_image->pixels[pixel_index] >> 8;
+                ipv6_hdr->dst_addr[14] = fluter_image->pixels[pixel_index] >> 16;
+                ipv6_hdr->dst_addr[15] = fluter_image->pixels[pixel_index] >> 24;
 
-            udp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_udp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr));
-            udp_hdr->src_port = htons(1337);
-            udp_hdr->src_port = htons(1234);
-            udp_hdr->dgram_len = 0;
-            // This seems to be fine. Either the hardware offloading of the NIC takes care of this or I currently don't
-            // notice any problems, as I'm only sending NIC -> NIC and nothing is actually checking the checksum.
-            // Hopefully routers only care about the IP header and leave checking the UDP header to the receiving
-            // application or kernel.
-            udp_hdr->dgram_cksum = 0;
+                udp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_udp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr));
+                udp_hdr->src_port = htons(1337);
+                udp_hdr->src_port = htons(1234);
+                udp_hdr->dgram_len = 0;
+                // This seems to be fine. Either the hardware offloading of the NIC takes care of this or I currently don't
+                // notice any problems, as I'm only sending NIC -> NIC and nothing is actually checking the checksum.
+                // Hopefully routers only care about the IP header and leave checking the UDP header to the receiving
+                // application or kernel.
+                udp_hdr->dgram_cksum = 0;
+            } else {
+                ipv6_hdr->vtc_flow = htonl(6 << 28); // IP version 6
+                ipv6_hdr->hop_limits = 0xff;
+                ipv6_hdr->proto = 58; // ICMPv6
+                ipv6_hdr->payload_len = htonl(sizeof(struct rte_icmp_hdr) + 8); // 8 bytes for command, x, y, r, g and b (note we don't send a [alpha])
+
+                memcpy(ipv6_hdr->src_addr, &src_addr, sizeof(struct in6_addr));
+                memcpy(ipv6_hdr->dst_addr, &args->pingxelflut_target, sizeof(struct in6_addr));
+
+                icmp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_icmp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr));
+                icmp_hdr->icmp_type = RTE_ICMP6_ECHO_REQUEST;
+                icmp_hdr->icmp_code = 0;
+                // Let's see how it goes
+                icmp_hdr->icmp_cksum = 0;
+                // Set message type to command to set pixel
+                *rte_pktmbuf_mtod_offset(pkt[i], uint8_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr)) = 0xcc;
+                *rte_pktmbuf_mtod_offset(pkt[i], uint16_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr) + 1) = htons(x);
+                *rte_pktmbuf_mtod_offset(pkt[i], uint16_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr) + 3) = htons(y);
+
+                pixel_index = y * width + x;
+                // Please note that we write 4 bytes, but we only use 3 bytes for the packet, the last byte should just
+                // write into the buffer, but not get send over the network
+                *rte_pktmbuf_mtod_offset(pkt[i], uint32_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr) + 5) = fluter_image->pixels[pixel_index];
+            }
 
             pkt[i]->data_len = pkt_size;
             pkt[i]->pkt_len = pkt_size;
@@ -325,6 +377,10 @@ int main(int argc, char *argv[]) {
 
     // Parse command arguments (after the EAL ones)
     struct arguments arguments = {0};
+    // Set defaults
+    arguments.use_pingxelflut = false;
+    // Parse actual arguments. I think we don't need to check the return code, as the function will error out on wrong
+    // arguments(?)
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
     int err = 0;
@@ -362,6 +418,8 @@ int main(int argc, char *argv[]) {
     // Call lcore_main on the main core only. Called on single lcore
     struct main_thread_args args;
     args.fluter_image = fluter_image;
+    args.use_pingxelflut = arguments.use_pingxelflut;
+    args.pingxelflut_target = arguments.pingxelflut_target;
     args.mbuf_pool = mbuf_pool;
     // FIXME: Currently this only works with a single port
     args.port_id = 0;
