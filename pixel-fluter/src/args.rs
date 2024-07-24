@@ -5,7 +5,7 @@ pub struct Args {
     #[clap(short = 's', long)]
     pub pixelflut_sink: String,
 
-    #[clap(short = 't', long, default_value = "10")]
+    #[clap(short = 't', long, default_value = "2")]
     pub drawing_threads: u16,
 
     #[clap(short = 'f', long, default_value = "30")]

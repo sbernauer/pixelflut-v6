@@ -72,7 +72,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut index = 0;
     for fb_slice in fb.chunks_mut(thread_chunk_size) {
         let start_x = (index % width as usize) as u16;
-        let start_y = (index / height as usize) as u16;
+        let start_y = (index / width as usize) as u16;
         index += fb_slice.len();
 
         let sink = TcpStream::connect(&args.pixelflut_sink)
