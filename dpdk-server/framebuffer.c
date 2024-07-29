@@ -24,10 +24,14 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
     }
 
     int expected_shared_memory_size = 2 * sizeof(uint16_t) /* size header */
-        + width * height * sizeof(uint32_t) /* pixels */;
+        + width * height * sizeof(uint32_t) /* pixels */
+        + MAX_PORTS * sizeof(struct port_stats) /* statistics for every per port */;
 
+    bool fresh_shm = false;
     if (shared_memory_stats.st_size == 0) {
         // Shared memory was freshly created (with size 0), we need to initialize it
+        fresh_shm = true;
+
         if (ftruncate(fd, expected_shared_memory_size) == -1) {
             printf("Failed to resize the shared memory with name %s to size of %u bytes: %s\n",
                 shared_memory_name, expected_shared_memory_size, strerror(errno));
@@ -36,7 +40,7 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
     } else if (shared_memory_stats.st_size != expected_shared_memory_size) {
         printf("Found existing shared memory with size of %lu bytes. However, I expected it to be of size %u, as the"
             "framebuffer has (%u, %u) pixels. The Pixelflut backend and frontend seem to use different resolutions! "
-            "In case you want to re-size your existing framebuffer please execute 'rm /dev/shm/%s'\n",
+            "In case you want to re-size your existing framebuffer please execute 'rm /dev/shm%s'\n",
             shared_memory_stats.st_size, expected_shared_memory_size, width, height, shared_memory_name);
         return EINVAL;
     } else {
@@ -48,6 +52,11 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
     if (shared_memory == MAP_FAILED) {
         printf("Failed to mmap the the shared memory with name %s: %s\n", shared_memory_name, strerror(errno));
         return errno;
+    }
+
+    // Zero the new shared memory, as e.g. the statistics rely on the fact that the mac addresses initialize with zero.
+    if (fresh_shm) {
+        memset(shared_memory, 0, expected_shared_memory_size);
     }
 
     // We need to set width and height so that other tools (e.g. the frontend) can detect the framebuffer size
@@ -73,6 +82,7 @@ int create_fb(struct framebuffer** framebuffer, uint16_t width, uint16_t height,
     fb->width = width;
     fb->height = height;
     fb->pixels = (uint32_t*)(shared_memory + 2 * sizeof(uint16_t) /* size header */);
+    fb->port_stats = (struct port_stats*)(shared_memory + 2 * sizeof(uint16_t) /* size header */ + width * height * sizeof(uint32_t) /* pixels */);
 
     printf("Created framebuffer of size (%u,%u) backed by shared memory with the name %s\n",
         width, height, shared_memory_name);

@@ -1,20 +1,24 @@
-use std::slice;
+use std::{slice, time::Duration};
 
 use anyhow::{bail, Context, Result};
+use args::Args;
 use clap::Parser;
 use shared_memory::ShmemConf;
-use tokio::{net::TcpStream, signal};
-
-use args::Args;
+use tokio::net::TcpStream;
 use tracing::{debug, info, warn};
 
-use crate::drawer::drawing_thread;
+use crate::{drawer::drawing_thread, statistics::Statistics};
 
 mod args;
 mod drawer;
+mod statistics;
 
 // Width and height, both of type u16.
 const HEADER_SIZE: usize = 2 * std::mem::size_of::<u16>();
+
+/// This needs to align with the `MAX_PORTS` constant in the server code, so that we end up with the same memory layout
+/// for the shared memory!
+pub const MAX_PORTS: usize = 32;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -23,7 +27,6 @@ async fn main() -> Result<(), anyhow::Error> {
     tracing_subscriber::fmt().init();
 
     let shared_memory = ShmemConf::new()
-        // .size(HEADER_SIZE)
         .os_id(&args.shared_memory_name)
         .open()
         .with_context(|| {
@@ -64,6 +67,15 @@ async fn main() -> Result<(), anyhow::Error> {
         )
     };
 
+    let statistics: &Statistics = unsafe {
+        (shared_memory
+            .as_ptr()
+            .add(4 /* header */)
+            .add(width as usize * height as usize * 4 /* pixels */) as *const Statistics)
+            .as_ref()
+            .unwrap()
+    };
+
     info!(
         drawing_threads = args.drawing_threads,
         "Starting drawing threads"
@@ -96,9 +108,12 @@ async fn main() -> Result<(), anyhow::Error> {
         ));
     }
 
-    info!("Waiting for Ctrl-C...");
-    signal::ctrl_c().await?;
-    info!("Exiting...");
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        println!("{statistics}");
+    }
 
-    Ok(())
+    // info!("Waiting for Ctrl-C...");
+    // signal::ctrl_c().await?;
+    // info!("Exiting...");
 }

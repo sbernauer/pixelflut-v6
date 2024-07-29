@@ -12,6 +12,7 @@
 #include <rte_mbuf.h>
 
 #include "framebuffer.h"
+#include "stats.h"
 
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
@@ -65,6 +66,25 @@ const char *argp_program_version = "pixelflut-v6-server 0.1.0";
 static char doc[] = "Fast pixelflut v6 or pingxelflut server using DPDK";
 static char args_doc[] = "";
 static struct argp argp = { options, parse_opt, args_doc, doc };
+
+int find_free_stats_slot(struct framebuffer* fb, struct rte_ether_addr* mac_addr) {
+    for (int slot = 0; slot < MAX_PORTS; slot++) {
+        if (rte_is_same_ether_addr(&fb->port_stats[slot].mac_addr, mac_addr)) {
+            printf("Found slot %d with my MAC address, using that\n", slot);
+            return slot;
+        }
+
+        if (rte_is_zero_ether_addr(&fb->port_stats[slot].mac_addr)) {
+            // All full slots have been checked before, so we can now assume this mac address does not have a slot yet
+            printf("Found empty slot %d, using that\n", slot);
+            rte_ether_addr_copy(mac_addr, &fb->port_stats[slot].mac_addr);
+            return slot;
+        }
+    }
+
+    // No free slot found
+    return -1;
+}
 
 // Main functional part of port initialization
 static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
@@ -124,15 +144,6 @@ static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
     if (retval < 0)
         return retval;
 
-    // Display the port MAC address
-    struct rte_ether_addr addr;
-    retval = rte_eth_macaddr_get(port, &addr);
-    if (retval != 0)
-        return retval;
-
-    printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8" %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
-            port, RTE_ETHER_ADDR_BYTES(&addr));
-
     // Enable RX in promiscuous mode for the Ethernet device
     retval = rte_eth_promiscuous_enable(port);
     if (retval != 0)
@@ -148,12 +159,13 @@ struct main_thread_args {
 };
 
  /* Basic forwarding application lcore. 8< */
-static __rte_noreturn void lcore_main(struct main_thread_args *args) {
+static void lcore_main(struct main_thread_args *args) {
     // Read args
     struct rte_mempool *mbuf_pool = args->mbuf_pool;
     int port_id = args->port_id;
     struct framebuffer* fb = args->fb;
 
+    int err;
     uint16_t port, nb_rx;
 
     uint32_t stats_loop_counter = 0;
@@ -167,6 +179,22 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
         if (rte_eth_dev_socket_id(port) >= 0 && rte_eth_dev_socket_id(port) != (int)rte_socket_id())
             printf("WARNING, port %u is on remote NUMA node to polling thread.\n"
                 "\tPerformance will not be optimal.\n", port);
+
+    struct rte_ether_addr mac_addr;
+    if((err = rte_eth_macaddr_get(port_id, &mac_addr))) {
+		fprintf(stderr, "Failed to read MAC address of port %d: %s\n", port_id, strerror(err));
+        return;
+	}
+    printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8" %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
+        port_id, RTE_ETHER_ADDR_BYTES(&mac_addr));
+
+    int stat_slot = find_free_stats_slot(fb, &mac_addr);
+    if(stat_slot == -1) {
+		fprintf(stderr, "Failed to find free statistics slot. You compiled with support for maximum %d ports, \
+            please increase MAX_PORTS\n", MAX_PORTS);
+        return;
+	}
+    struct rte_eth_stats* eth_stats = &fb->port_stats[stat_slot].stats;
 
     bool was_pingxelflut;
     struct rte_ether_hdr *eth_hdr;
@@ -270,13 +298,12 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
             if (elapsed_millis >= STATS_INTERVAL_MS) {
                 last_stats_report = now;
 
-                struct rte_eth_stats eth_stats;
-                rte_eth_stats_get(port_id, &eth_stats);
+                rte_eth_stats_get(port_id, eth_stats);
                 setlocale(LC_NUMERIC, "");
                 printf("Total number of packets for port %u: send %'lu packets (%'lu bytes), "
                     "received %'lu packets (%'lu bytes), dropped rx %'lu, ierrors %'lu, rx_nombuf %'lu, q_ipackets %'lu\n",
-                    port_id, eth_stats.opackets, eth_stats.obytes, eth_stats.ipackets, eth_stats.ibytes, eth_stats.imissed,
-                    eth_stats.ierrors, eth_stats.rx_nombuf, eth_stats.q_ipackets[0]);
+                    port_id, eth_stats->opackets, eth_stats->obytes, eth_stats->ipackets, eth_stats->ibytes, eth_stats->imissed,
+                    eth_stats->ierrors, eth_stats->rx_nombuf, eth_stats->q_ipackets[0]);
             }
         }
     }
@@ -289,7 +316,7 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
 
 // The main function, which does initialization and calls the per-lcore functions
 int main(int argc, char *argv[]) {
-    // Initializion the Environment Abstraction Layer (EAL)
+    // Initialize the Environment Abstraction Layer (EAL)
     int ret = rte_eal_init(argc, argv);
     if (ret < 0)
         rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");

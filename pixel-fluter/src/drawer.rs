@@ -29,7 +29,7 @@ pub async fn drawing_thread(
     let mut interval = time::interval(Duration::from_micros(1_000_000 / fps as u64));
 
     loop {
-        let start = std::time::Instant::now();
+        // let start = std::time::Instant::now();
         match transmit_mode {
             TransmitMode::BinaryPixel => {
                 let mut x = start_x;
@@ -144,13 +144,13 @@ pub async fn drawing_thread(
         // }
         // }
 
-        let elapsed = start.elapsed();
-        info!(
-            ?elapsed,
-            duty_cycle =
-                (elapsed.as_micros() as f32 / interval.period().as_micros() as f32 * 100.0).ceil(),
-            "Loop completed",
-        );
+        // let elapsed = start.elapsed();
+        // info!(
+        //     ?elapsed,
+        //     duty_cycle =
+        //         (elapsed.as_micros() as f32 / interval.period().as_micros() as f32 * 100.0).ceil(),
+        //     "Loop completed",
+        // );
 
         sink.flush()
             .await
