@@ -1,4 +1,4 @@
-use std::{slice, time::Duration};
+use std::slice;
 
 use anyhow::{bail, Context, Result};
 use args::Args;
@@ -7,11 +7,12 @@ use shared_memory::ShmemConf;
 use tokio::net::TcpStream;
 use tracing::{debug, info, warn};
 
-use crate::{drawer::drawing_thread, statistics::Statistics};
+use crate::{drawer::drawing_thread, statistics::Statistics, ui::Ui};
 
 mod args;
 mod drawer;
 mod statistics;
+mod ui;
 
 // Width and height, both of type u16.
 const HEADER_SIZE: usize = 2 * std::mem::size_of::<u16>();
@@ -67,7 +68,7 @@ async fn main() -> Result<(), anyhow::Error> {
         )
     };
 
-    let statistics: &Statistics = unsafe {
+    let current_statistics: &Statistics = unsafe {
         (shared_memory
             .as_ptr()
             .add(4 /* header */)
@@ -108,12 +109,6 @@ async fn main() -> Result<(), anyhow::Error> {
         ));
     }
 
-    loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        println!("{statistics}");
-    }
-
-    // info!("Waiting for Ctrl-C...");
-    // signal::ctrl_c().await?;
-    // info!("Exiting...");
+    let mut ui = Ui::new(current_statistics);
+    ui.start().context("Failed to start UI")
 }

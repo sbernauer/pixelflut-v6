@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 macaddr = "1.0"
+ratatui = "0.27"
 shared_memory = { version = "0.12", features = ["logging"] }
 tokio = { version = "1.38", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "signal", "time"] }
 tracing = "0.1"

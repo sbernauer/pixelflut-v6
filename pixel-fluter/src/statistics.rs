@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Sub};
 
 use macaddr::MacAddr6;
 
@@ -8,9 +8,9 @@ use crate::MAX_PORTS;
 const RTE_ETHDEV_QUEUE_STAT_CNTRS: usize = 16;
 
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Statistics {
-    port_stats: [PortStats; MAX_PORTS],
+    pub port_stats: [PortStats; MAX_PORTS],
 }
 
 impl Display for Statistics {
@@ -28,38 +28,55 @@ impl Display for Statistics {
     }
 }
 
+impl Sub for &Statistics {
+    type Output = Statistics;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Statistics {
+            port_stats: self
+                .port_stats
+                .iter()
+                .zip(rhs.port_stats.iter())
+                .map(|(l, r)| l - r)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        }
+    }
+}
+
 // Same memory layout as rte_eth_stats
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Default, Debug)]
 pub struct PortStats {
-    mac_addr: MacAddr6,
+    pub mac_addr: MacAddr6,
 
     /// Total number of successfully received packets.
-    ipackets: u64,
+    pub ipackets: u64,
     /// Total number of successfully transmitted packets.
-    opackets: u64,
+    pub opackets: u64,
     /// Total number of successfully received bytes.
-    ibytes: u64,
+    pub ibytes: u64,
     /// Total number of successfully transmitted bytes.
-    obytes: u64,
+    pub obytes: u64,
     /// Total of Rx packets dropped by the HW, because there are no available buffer (i.e. Rx queues are full).
-    imissed: u64,
+    pub imissed: u64,
     /// Total number of erroneous received packets.
-    ierrors: u64,
+    pub ierrors: u64,
     /// Total number of failed transmitted packets.
-    oerrors: u64,
+    pub oerrors: u64,
     /// Total number of Rx mbuf allocation failures.
-    rx_nombuf: u64,
+    pub rx_nombuf: u64,
     /// Total number of queue Rx packets.
-    q_ipackets: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
+    pub q_ipackets: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
     /// Total number of queue Tx packets.
-    q_opackets: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
+    pub q_opackets: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
     /// Total number of successfully received queue bytes.
-    q_ibytes: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
+    pub q_ibytes: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
     /// Total number of successfully transmitted queue bytes.
-    q_obytes: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
+    pub q_obytes: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
     /// Total number of queue packets received that are dropped.
-    q_errors: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
+    pub q_errors: [u64; RTE_ETHDEV_QUEUE_STAT_CNTRS],
 }
 
 impl Display for PortStats {
@@ -80,5 +97,63 @@ impl Display for PortStats {
         }
 
         Ok(())
+    }
+}
+
+impl Sub for &PortStats {
+    type Output = PortStats;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        PortStats {
+            mac_addr: rhs.mac_addr,
+            ipackets: self.ipackets.saturating_sub(rhs.ipackets),
+            opackets: self.opackets.saturating_sub(rhs.opackets),
+            ibytes: self.ibytes.saturating_sub(rhs.ibytes),
+            obytes: self.obytes.saturating_sub(rhs.obytes),
+            imissed: self.imissed.saturating_sub(rhs.imissed),
+            ierrors: self.ierrors.saturating_sub(rhs.ierrors),
+            oerrors: self.oerrors.saturating_sub(rhs.oerrors),
+            rx_nombuf: self.rx_nombuf.saturating_sub(rhs.rx_nombuf),
+            q_ipackets: self
+                .q_ipackets
+                .iter()
+                .zip(rhs.q_ipackets)
+                .map(|(l, r)| l.saturating_sub(r))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            q_opackets: self
+                .q_opackets
+                .iter()
+                .zip(rhs.q_opackets)
+                .map(|(l, r)| l.saturating_sub(r))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            q_ibytes: self
+                .q_ibytes
+                .iter()
+                .zip(rhs.q_ibytes)
+                .map(|(l, r)| l.saturating_sub(r))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            q_obytes: self
+                .q_obytes
+                .iter()
+                .zip(rhs.q_obytes)
+                .map(|(l, r)| l.saturating_sub(r))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            q_errors: self
+                .q_errors
+                .iter()
+                .zip(rhs.q_errors)
+                .map(|(l, r)| l.saturating_sub(r))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        }
     }
 }
