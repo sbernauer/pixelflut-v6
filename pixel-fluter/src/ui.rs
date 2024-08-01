@@ -4,6 +4,8 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use macaddr::MacAddr6;
+use number_prefix::NumberPrefix;
 use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode},
@@ -14,7 +16,7 @@ use ratatui::{
     widgets::*,
 };
 
-use crate::statistics::Statistics;
+use crate::statistics::{PortStats, Statistics};
 
 pub struct Ui<'a> {
     current_statistics: &'a Statistics,
@@ -92,10 +94,11 @@ impl<'a> Ui<'a> {
 
         let rows = self.get_rows();
         let widths = [
-            Constraint::Length(17),
+            Constraint::Length(18),
             Constraint::Length(10),
+            Constraint::Length(12),
             Constraint::Length(10),
-            Constraint::Length(10),
+            Constraint::Length(12),
         ];
         let table = Table::new(rows, widths)
             // ...and they can be separated by a fixed spacing.
@@ -104,7 +107,7 @@ impl<'a> Ui<'a> {
             .style(Style::new().blue())
             // It has an optional header, which is simply a Row always visible at the top.
             .header(
-                Row::new(vec!["MAC address", "Packets", "Bytes", "Pkt/s"])
+                Row::new(vec!["MAC address", "Pkt/s", "Bit/s", "Packets", "Bytes"])
                     .style(Style::new().bold())
                     // To add space between the header and the rest of the rows, specify the margin
                     .bottom_margin(1),
@@ -141,7 +144,9 @@ impl<'a> Ui<'a> {
     fn get_rows(&mut self) -> Vec<Row> {
         if self.last_tick.elapsed() > Duration::from_secs(1) {
             self.last_tick = Instant::now();
-            self.diff = self.current_statistics - &self.prev_statistics;
+            self.diff = self
+                .current_statistics
+                .saturating_sub(&self.prev_statistics);
             self.prev_statistics = self.current_statistics.clone();
         }
 
@@ -159,15 +164,62 @@ impl<'a> Ui<'a> {
                 continue;
             }
 
-            // let rows = [Row::new(vec!["Cell1", "Cell2", "Cell3"])];
             rows.push(Row::new(vec![
                 current_port_stat.mac_addr.to_string(),
-                current_port_stat.ipackets.to_string(),
-                current_port_stat.ibytes.to_string(),
-                diff.ipackets.to_string(),
+                format_packets(diff.ipackets as f64),
+                format_bytes_per_s(diff.ibytes as f64),
+                format_packets(current_port_stat.ipackets as f64),
+                format_bytes(current_port_stat.ibytes as f64),
             ]));
         }
 
+        let mut current_sum: PortStats = self.current_statistics.port_stats.iter().sum();
+        current_sum.mac_addr = MacAddr6::broadcast();
+        let mut diff_sum: PortStats = self.diff.port_stats.iter().sum();
+        diff_sum.mac_addr = MacAddr6::broadcast();
+
+        rows.push(Row::new(Vec::<Cell>::new()));
+        rows.push(Row::new(vec![
+            "Total".to_owned(),
+            format_packets(diff_sum.ipackets as f64),
+            format_bytes_per_s(diff_sum.ibytes as f64),
+            format_packets(current_sum.ipackets as f64),
+            format_bytes(current_sum.ibytes as f64),
+        ]));
+
         rows
+    }
+}
+
+fn format_bytes(bytes: f64) -> String {
+    match NumberPrefix::decimal(bytes) {
+        NumberPrefix::Standalone(bytes) => {
+            format!("{bytes} bytes")
+        }
+        NumberPrefix::Prefixed(prefix, value) => {
+            format!("{value:.2} {prefix}B")
+        }
+    }
+}
+
+fn format_bytes_per_s(bytes_per_s: f64) -> String {
+    match NumberPrefix::decimal(bytes_per_s * 8.0) {
+        NumberPrefix::Standalone(bits_per_s) => {
+            format!("{bits_per_s} bit/s")
+        }
+        NumberPrefix::Prefixed(prefix, value) => {
+            format!("{value:.2} {prefix}b/s")
+        }
+    }
+}
+
+fn format_packets(packets: f64) -> String {
+    match NumberPrefix::decimal(packets) {
+        NumberPrefix::Standalone(packets) => {
+            format!("{packets}")
+        }
+        NumberPrefix::Prefixed(prefix, value) => {
+            format!("{value:.2}{prefix}")
+        }
     }
 }

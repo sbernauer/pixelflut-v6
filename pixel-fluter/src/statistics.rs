@@ -1,4 +1,4 @@
-use std::{fmt::Display, ops::Sub};
+use std::{fmt::Display, iter::Sum, ops::Add};
 
 use macaddr::MacAddr6;
 
@@ -28,16 +28,15 @@ impl Display for Statistics {
     }
 }
 
-impl Sub for &Statistics {
-    type Output = Statistics;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Statistics {
+/// I could not find a SaturatingSub trait in std
+impl Statistics {
+    pub fn saturating_sub(&self, rhs: &Self) -> Self {
+        Self {
             port_stats: self
                 .port_stats
                 .iter()
                 .zip(rhs.port_stats.iter())
-                .map(|(l, r)| l - r)
+                .map(|(l, r)| l.saturating_sub(r))
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),
@@ -100,12 +99,75 @@ impl Display for PortStats {
     }
 }
 
-impl Sub for &PortStats {
+impl Add<&PortStats> for &PortStats {
     type Output = PortStats;
 
-    fn sub(self, rhs: Self) -> Self::Output {
+    fn add(self, rhs: &PortStats) -> Self::Output {
         PortStats {
-            mac_addr: rhs.mac_addr,
+            mac_addr: self.mac_addr,
+            ipackets: self.ipackets + rhs.ipackets,
+            opackets: self.opackets + rhs.opackets,
+            ibytes: self.ibytes + rhs.ibytes,
+            obytes: self.obytes + rhs.obytes,
+            imissed: self.imissed + rhs.imissed,
+            ierrors: self.ierrors + rhs.ierrors,
+            oerrors: self.oerrors + rhs.oerrors,
+            rx_nombuf: self.rx_nombuf + rhs.rx_nombuf,
+            q_ipackets: self
+                .q_ipackets
+                .iter()
+                .zip(rhs.q_ipackets)
+                .map(|(l, r)| l + r)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            q_opackets: self
+                .q_opackets
+                .iter()
+                .zip(rhs.q_opackets)
+                .map(|(l, r)| l + r)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            q_ibytes: self
+                .q_ibytes
+                .iter()
+                .zip(rhs.q_ibytes)
+                .map(|(l, r)| l + r)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            q_obytes: self
+                .q_obytes
+                .iter()
+                .zip(rhs.q_obytes)
+                .map(|(l, r)| l + r)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            q_errors: self
+                .q_errors
+                .iter()
+                .zip(rhs.q_errors)
+                .map(|(l, r)| l + r)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        }
+    }
+}
+
+impl<'a> Sum<&'a PortStats> for PortStats {
+    fn sum<I: Iterator<Item = &'a PortStats>>(iter: I) -> Self {
+        iter.fold(PortStats::default(), |l, r| &l + r)
+    }
+}
+
+/// I could not find a SaturatingSub trait in std
+impl PortStats {
+    fn saturating_sub(&self, rhs: &Self) -> PortStats {
+        PortStats {
+            mac_addr: self.mac_addr,
             ipackets: self.ipackets.saturating_sub(rhs.ipackets),
             opackets: self.opackets.saturating_sub(rhs.opackets),
             ibytes: self.ibytes.saturating_sub(rhs.ibytes),
