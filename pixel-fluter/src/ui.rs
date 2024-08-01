@@ -89,8 +89,11 @@ impl<'a> Ui<'a> {
     /// Render the application. This is where you would draw the application UI. This example just
     /// draws a greeting.
     fn render_app(&mut self, frame: &mut Frame) {
-        // let greeting = Paragraph::new("Hello World! (press 'q' to quit)");
-        // frame.render_widget(greeting, frame.size());
+        let main_layout = Layout::new(
+            Direction::Vertical,
+            [Constraint::Percentage(50), Constraint::Percentage(50)],
+        )
+        .split(frame.size());
 
         let rows = self.get_rows();
         let widths = [
@@ -104,7 +107,7 @@ impl<'a> Ui<'a> {
             // ...and they can be separated by a fixed spacing.
             .column_spacing(1)
             // You can set the style of the entire Table.
-            .style(Style::new().blue())
+            .style(Style::new())
             // It has an optional header, which is simply a Row always visible at the top.
             .header(
                 Row::new(vec!["MAC address", "Pkt/s", "Bit/s", "Packets", "Bytes"])
@@ -112,16 +115,14 @@ impl<'a> Ui<'a> {
                     // To add space between the header and the rest of the rows, specify the margin
                     .bottom_margin(1),
             )
-            // It has an optional footer, which is simply a Row always visible at the bottom.
-            // .footer(Row::new(vec!["Updated on Dec 28"]))
             // As any other widget, a Table can be wrapped in a Block.
-            // .block(Block::new().title("Table"))
-            // The selected row and its content can also be styled.
-            .highlight_style(Style::new().reversed())
-            // ...and potentially show a symbol in front of the selection.
-            .highlight_symbol(">>");
+            .block(Block::new().title("Port statistics").borders(Borders::TOP));
 
-        frame.render_widget(table, frame.size());
+        frame.render_widget(table, main_layout[0]);
+
+        // let greeting =
+        //     Paragraph::new("TODO").block(Block::new().title("Histogram").borders(Borders::TOP));
+        // frame.render_widget(greeting, main_layout[1]);
     }
 
     /// Check if the user has pressed 'q'. This is where you would handle events. This example just
@@ -178,14 +179,17 @@ impl<'a> Ui<'a> {
         let mut diff_sum: PortStats = self.diff.port_stats.iter().sum();
         diff_sum.mac_addr = MacAddr6::broadcast();
 
-        rows.push(Row::new(Vec::<Cell>::new()));
-        rows.push(Row::new(vec![
-            "Total".to_owned(),
-            format_packets(diff_sum.ipackets as f64),
-            format_bytes_per_s(diff_sum.ibytes as f64),
-            format_packets(current_sum.ipackets as f64),
-            format_bytes(current_sum.ibytes as f64),
-        ]));
+        rows.push(
+            Row::new(vec![
+                "Total".to_owned(),
+                format_packets(diff_sum.ipackets as f64),
+                format_bytes_per_s(diff_sum.ibytes as f64),
+                format_packets(current_sum.ipackets as f64),
+                format_bytes(current_sum.ibytes as f64),
+            ])
+            .top_margin(1)
+            .yellow(),
+        );
 
         rows
     }
