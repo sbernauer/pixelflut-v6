@@ -43,8 +43,11 @@ impl<'a> Ui<'a> {
     /// presses 'q'.
     pub fn start(&mut self) -> Result<()> {
         let mut terminal = Self::setup_terminal().context("setup failed")?;
-        self.run(&mut terminal).context("app loop failed")?;
-        Self::restore_terminal(&mut terminal).context("restore terminal failed")?;
+
+        self.run(&mut terminal).context("main app loop failed")?;
+
+        Self::restore_terminal(&mut terminal).context("restore of terminal failed")?;
+
         Ok(())
     }
 
@@ -120,12 +123,16 @@ impl<'a> Ui<'a> {
 
     /// Check if the user has pressed 'q'. This is where you would handle events. This example just
     /// checks if the user has pressed 'q' and returns true if they have. It does not handle any other
-    /// events. There is a 250ms timeout on the event poll so that the application can exit in a timely
-    /// manner, and to ensure that the terminal is rendered at least once every 250ms.
+    /// events. There is a 100ms timeout on the event poll so that the application can exit in a timely
+    /// manner, and to ensure that the terminal is rendered at least once every 100ms.
     fn should_quit() -> Result<bool> {
-        if event::poll(Duration::from_millis(250)).context("event poll failed")? {
+        if event::poll(Duration::from_millis(100)).context("event poll failed")? {
             if let Event::Key(key) = event::read().context("event read failed")? {
-                return Ok(KeyCode::Char('q') == key.code);
+                match key.code {
+                    // Poor mans way of handling CTRL + C :)
+                    KeyCode::Char('c') => return Ok(true),
+                    _ => return Ok(false),
+                }
             }
         }
         Ok(false)
