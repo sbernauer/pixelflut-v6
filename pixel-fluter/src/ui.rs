@@ -98,9 +98,13 @@ impl<'a> Ui<'a> {
         let rows = self.get_rows();
         let widths = [
             Constraint::Length(18),
-            Constraint::Length(10),
             Constraint::Length(12),
-            Constraint::Length(10),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Length(12),
             Constraint::Length(12),
         ];
         let table = Table::new(rows, widths)
@@ -110,10 +114,20 @@ impl<'a> Ui<'a> {
             .style(Style::new())
             // It has an optional header, which is simply a Row always visible at the top.
             .header(
-                Row::new(vec!["MAC address", "Pkt/s", "Bit/s", "Packets", "Bytes"])
-                    .style(Style::new().bold())
-                    // To add space between the header and the rest of the rows, specify the margin
-                    .bottom_margin(1),
+                Row::new(vec![
+                    "MAC address",
+                    "Pkt/s",
+                    "Bit/s",
+                    "Missed pkt/s",
+                    "Error pkt/s",
+                    "Packets",
+                    "Bytes",
+                    "Missed pkts",
+                    "Error pkts",
+                ])
+                .style(Style::new().bold())
+                // To add space between the header and the rest of the rows, specify the margin
+                .bottom_margin(1),
             )
             // As any other widget, a Table can be wrapped in a Block.
             .block(Block::new().title("Port statistics").borders(Borders::TOP));
@@ -169,8 +183,12 @@ impl<'a> Ui<'a> {
                 current_port_stat.mac_addr.to_string(),
                 format_packets(diff.ipackets as f64),
                 format_bytes_per_s(diff.ibytes as f64),
+                format_packets(diff.imissed as f64),
+                format_packets(diff.ierrors as f64),
                 format_packets(current_port_stat.ipackets as f64),
                 format_bytes(current_port_stat.ibytes as f64),
+                format_packets(current_port_stat.imissed as f64),
+                format_packets(current_port_stat.ierrors as f64),
             ]));
         }
 
@@ -184,8 +202,12 @@ impl<'a> Ui<'a> {
                 "Total".to_owned(),
                 format_packets(diff_sum.ipackets as f64),
                 format_bytes_per_s(diff_sum.ibytes as f64),
+                format_packets(diff_sum.imissed as f64),
+                format_packets(diff_sum.ierrors as f64),
                 format_packets(current_sum.ipackets as f64),
                 format_bytes(current_sum.ibytes as f64),
+                format_packets(current_sum.imissed as f64),
+                format_packets(current_sum.ierrors as f64),
             ])
             .top_margin(1)
             .yellow(),
