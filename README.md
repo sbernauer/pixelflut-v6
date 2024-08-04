@@ -104,7 +104,7 @@ make && sudo build/pixelflut-v6-client --file-prefix client1 -l 2 -a 0000:02:00.
 For performance reasons both - the server and the client - are using [DPDK](https://www.dpdk.org/).
 DPDK is a tool which controls your network interface card (NIC) from userspace, which gains very high performance.
 The downside is that it requires you to have a [supported NIC](http://core.dpdk.org/supported/) and it's a bit more complicated to set up.
-I'm e.g. using a Intel 82599 dual port 10G card for 22,00 €, which can handle ~28 million packets/s combined.
+I'm e.g. using a Intel 82599 dual port 10G card for 22.00 €, which can handle ~28 million packets/s combined.
 
 DPDK is written in C, so it makes things much easier to write your program in C as well.
 As I'm miserable at C, I only wrote the code using DPDK in C, the rest in Rust.
@@ -214,7 +214,7 @@ The result of this is this repository :)
 ## Performance
 
 DPDK is the limit :rocket:
-I personally only own a Intel 82599 dual port 10G card for 22,00 €, which can receive ~28 million packets/s which is ~15 Gbit/s.
+I personally only own a Intel 82599 dual port 10G card for 22.00 €, which can receive ~28 million packets/s which is ~15 Gbit/s.
 I think the limit is my old CPU (Intel i7-3770K from 2012) in my desktop, I have seen similar cards do 10G line rate (which would be 20 Gbit/s in this case).
 
 Looking at the [DPDK performance reports](https://core.dpdk.org/perf-reports/), a Mellanox (yes, I keep calling them that way :P) ConnectX-6 should :tm: be able to do 100G line rate :)
