@@ -299,11 +299,12 @@ static void lcore_main(struct main_thread_args *args) {
                 last_stats_report = now;
 
                 rte_eth_stats_get(port_id, eth_stats);
-                setlocale(LC_NUMERIC, "");
-                printf("Total number of packets for port %u: send %'lu packets (%'lu bytes), "
-                    "received %'lu packets (%'lu bytes), dropped rx %'lu, ierrors %'lu, rx_nombuf %'lu, q_ipackets %'lu\n",
-                    port_id, eth_stats->opackets, eth_stats->obytes, eth_stats->ipackets, eth_stats->ibytes, eth_stats->imissed,
-                    eth_stats->ierrors, eth_stats->rx_nombuf, eth_stats->q_ipackets[0]);
+                // Printing commented out to not flood screen. They are printed as a nice table by pixel-fluter instead.
+                // setlocale(LC_NUMERIC, "");
+                // printf("Total number of packets for port %u: send %'lu packets (%'lu bytes), "
+                //     "received %'lu packets (%'lu bytes), dropped rx %'lu, ierrors %'lu, rx_nombuf %'lu, q_ipackets %'lu\n",
+                //     port_id, eth_stats->opackets, eth_stats->obytes, eth_stats->ipackets, eth_stats->ibytes, eth_stats->imissed,
+                //     eth_stats->ierrors, eth_stats->rx_nombuf, eth_stats->q_ipackets[0]);
             }
         }
     }
