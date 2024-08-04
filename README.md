@@ -204,3 +204,11 @@ So I closed the chapter as a very interesting thing I heave learned a lot from, 
 However, my interested was raised again, after seeing the Pixelflut setup using dedicated switches at GPN22 to do interfere with regular traffic.
 
 The result of this is this repository :)
+
+## Performance
+
+DPDK is the limit :rocket:
+I personally only own a Intel 82599 dual port 10G card for 22,00 €, which can receive ~28 million packets/s which is ~15 Gbit/s.
+I think the limit is my old CPU (Intel i7-3770K from 2012) in my desktop, I have seen similar cards do 10G line rate (which would be 20 Gbit/s in this case).
+
+Looking at the [DPDK performance reports](https://core.dpdk.org/perf-reports/), a Mellanox (yes, I keep calling them that way :P) ConnectX-6 should :tm: be able to do 100G line rate :)
