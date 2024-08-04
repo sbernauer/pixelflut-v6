@@ -1,7 +1,13 @@
 # pixelflut-v6
 
-This README starts with running instructions.
+This README starts with features and running instructions.
 To get background information on the history of pixelflut as well as design aspects of the "new" pixelflut v6/pingxelflut protocol please read on [Architecture](#architecture) and [History](#history).
+
+## Features
+
+* Maximum performance by utilizing [DPDK](https://www.dpdk.org/)
+* Supports [pixelflut-v6](https://entropia.de/GPN17:Pingxelflut) and [pingxelflut](https://github.com/kleinesfilmroellchen/pingxelflut/) protocols
+* In case the [pixelflut-v6](https://entropia.de/GPN17:Pingxelflut) protocol is used unlimited scaling, as you can use as many servers as you have as it's linear horizontally scalable.
 
 ## Running
 
