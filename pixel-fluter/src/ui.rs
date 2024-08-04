@@ -98,14 +98,14 @@ impl<'a> Ui<'a> {
         let rows = self.get_rows();
         let widths = [
             Constraint::Length(18),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
+            Constraint::Length(13),
+            Constraint::Length(13),
+            Constraint::Length(13),
+            Constraint::Length(13),
+            Constraint::Length(13),
+            Constraint::Length(13),
+            Constraint::Length(13),
+            Constraint::Length(13),
         ];
         let table = Table::new(rows, widths)
             // ...and they can be separated by a fixed spacing.
@@ -181,10 +181,10 @@ impl<'a> Ui<'a> {
 
             rows.push(Row::new(vec![
                 current_port_stat.mac_addr.to_string(),
-                format_packets(diff.ipackets as f64),
+                format_packets_per_s(diff.ipackets as f64),
                 format_bytes_per_s(diff.ibytes as f64),
-                format_packets(diff.imissed as f64),
-                format_packets(diff.ierrors as f64),
+                format_packets_per_s(diff.imissed as f64),
+                format_packets_per_s(diff.ierrors as f64),
                 format_packets(current_port_stat.ipackets as f64),
                 format_bytes(current_port_stat.ibytes as f64),
                 format_packets(current_port_stat.imissed as f64),
@@ -200,10 +200,10 @@ impl<'a> Ui<'a> {
         rows.push(
             Row::new(vec![
                 "Total".to_owned(),
-                format_packets(diff_sum.ipackets as f64),
+                format_packets_per_s(diff_sum.ipackets as f64),
                 format_bytes_per_s(diff_sum.ibytes as f64),
-                format_packets(diff_sum.imissed as f64),
-                format_packets(diff_sum.ierrors as f64),
+                format_packets_per_s(diff_sum.imissed as f64),
+                format_packets_per_s(diff_sum.ierrors as f64),
                 format_packets(current_sum.ipackets as f64),
                 format_bytes(current_sum.ibytes as f64),
                 format_packets(current_sum.imissed as f64),
@@ -242,10 +242,21 @@ fn format_bytes_per_s(bytes_per_s: f64) -> String {
 fn format_packets(packets: f64) -> String {
     match NumberPrefix::decimal(packets) {
         NumberPrefix::Standalone(packets) => {
-            format!("{packets}")
+            format!("{packets} p")
         }
         NumberPrefix::Prefixed(prefix, value) => {
-            format!("{value:.2}{prefix}")
+            format!("{value:.2} {prefix}p")
+        }
+    }
+}
+
+fn format_packets_per_s(packets: f64) -> String {
+    match NumberPrefix::decimal(packets) {
+        NumberPrefix::Standalone(packets) => {
+            format!("{packets} p/s")
+        }
+        NumberPrefix::Prefixed(prefix, value) => {
+            format!("{value:.2} {prefix}p/s")
         }
     }
 }
