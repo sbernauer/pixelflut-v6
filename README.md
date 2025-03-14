@@ -63,6 +63,13 @@ If you have multiple pots, please start a dedicated server per port.
 Now you should have a `pixelflut-v6-server` running and waiting for packets.
 You can start additional servers for every NIC port your server has (e.g. using `sudo build/pixelflut-v6-server --file-prefix server2 -l 1 -a 0000:01:00.1`).
 
+If you are developing and don't have a physical NIC supported by DPDK (as my Laptop has), you can emulate a virtual
+device as well using the following command. Please don't expect any performance :P
+
+```bash
+sudo build/pixelflut-v6-server --file-prefix server1 -l 0 --vdev 'net_pcap0,iface=lo'
+```
+
 ### breakwater
 
 Before we can start `pixel-fluter`, we need a pixelflut server where we can flut the screen to.
@@ -99,6 +106,12 @@ cd dpdk-client
 make && sudo build/pixelflut-v6-client --file-prefix client1 -l 2 -a 0000:02:00.0 -- --image testimage.jpg
 ```
 
+Again, if you don't have a supported physical NIC, you can emulate one using
+
+```bash
+sudo build/pixelflut-v6-client --file-prefix client1 -l 2 --vdev 'net_pcap0,iface=lo' -- --image testimage.jpg
+```
+
 ## Architecture
 
 For performance reasons both - the server and the client - are using [DPDK](https://www.dpdk.org/).
@@ -108,7 +121,7 @@ I'm e.g. using a Intel 82599 dual port 10G card for 22.00 €, which can handle 
 
 DPDK is written in C, so it makes things much easier to write your program in C as well.
 As I'm miserable at C, I only wrote the code using DPDK in C, the rest in Rust.
-The C `pixelflut-v6-server` opens a shared memory region, which the Rust `pixel-fluter` connects to.
+The C `pixelflut-v6-server` opens a shared memory region, which the Rust `pixel-fluter` connects to (check using e.g. `ls -l /dev/shm/`).
 This way we can not only efficiently share the framebuffer (and some statistics) between the C and Rust program, but also start multiple `pixelflut-v6-server` on the same machine sharing the same framebuffer.
 
 The `pixel-fluter` in turn fluts the screen to a regular pixelflut server (such as breakwater).
