@@ -1,6 +1,6 @@
 use std::slice;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use args::Args;
 use clap::Parser;
 use shared_memory::ShmemConf;
@@ -56,7 +56,8 @@ async fn main() -> Result<(), anyhow::Error> {
     info!(width, height, "Found existing framebuffer");
 
     warn!(
-        width, height,
+        width,
+        height,
         "I should ask the server what resolution it is using (using the SIZE command) and check if they are the same, \
         but I'm lazy. Until this is implemented, it is your responsibility to make sure the resolutions match"
     );

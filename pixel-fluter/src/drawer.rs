@@ -11,6 +11,7 @@ use crate::args::TransmitMode;
 // unlikely to be used by clients. As this marker also contains the alpha channel this is given here.
 const UNSET_COLOR_MARKER: u32 = 0x12345678;
 
+#[allow(clippy::too_many_arguments)]
 #[instrument(skip_all, fields(start_x = start_x, start_y = start_y))]
 pub async fn drawing_thread(
     fb_slice: &mut [u32],
@@ -67,7 +68,13 @@ pub async fn drawing_thread(
                         x = 0;
                         y += 1;
                         if y >= height {
-                            warn!(x, y, width, height, "x and y run over the fb bounds. This should not happen, as no thread should get work to do that");
+                            warn!(
+                                x,
+                                y,
+                                width,
+                                height,
+                                "x and y run over the fb bounds. This should not happen, as no thread should get work to do that"
+                            );
                             // break;
                         }
                     }
@@ -89,7 +96,7 @@ pub async fn drawing_thread(
                         .try_into()
                         .context("Slice of pixels to send is too large (can be u32::MAX at max). We would need to split the pixels this thread should send further")?,
                 ).await.unwrap();
-                sink.write_all(u32_to_u8(&fb_slice))
+                sink.write_all(u32_to_u8(fb_slice))
                     .await
                     .context("Failed to write to Pixelflut sink")?;
             }

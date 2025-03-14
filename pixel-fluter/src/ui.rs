@@ -10,7 +10,7 @@ use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode},
         execute,
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+        terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
     prelude::*,
     widgets::*,
@@ -93,7 +93,7 @@ impl<'a> Ui<'a> {
             Direction::Vertical,
             [Constraint::Percentage(50), Constraint::Percentage(50)],
         )
-        .split(frame.size());
+        .split(frame.area());
 
         let rows = self.get_rows();
         let widths = [
@@ -172,7 +172,6 @@ impl<'a> Ui<'a> {
             .port_stats
             .iter()
             .zip(self.diff.port_stats.iter())
-            .into_iter()
         {
             // Only print slots that have actual statistics
             if current_port_stat.mac_addr.is_nil() {
