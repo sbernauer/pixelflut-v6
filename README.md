@@ -40,8 +40,22 @@ sudo bash -c 'echo 1024 > /sys/devices/system/node/node0/hugepages/hugepages-204
 sudo modprobe vfio-pci
 # Yes, I have a very old CPU. You probably don't need/want that
 sudo bash -c 'echo 1 > /sys/module/vfio/parameters/enable_unsafe_noiommu_mode'
-sudo dpdk-devbind.py --bind=dpdk-devbind.py --bind=vfio-pci 0000:01:00.0
+dpdk-devbind.py --bind=vfio-pci 0000:01:00.0
 # Also bind other NICs
+```
+
+<!--
+I DID NOT GET THIS TO WORK:
+
+If you are one a system where `/sys/module/vfio/parameters/enable_unsafe_noiommu_mode` is missing you can also use
+`modprobe vfio enable_unsafe_noiommu_mode=1 --first-time`, see https://doc.dpdk.org/guides/linux_gsg/linux_drivers.html.
+Note: Run this before the `vfio` is loaded, so directly after startup of the machine (check using `lsmod | grep vfio`, use e.g. `sudo modprobe -r vfio` to unload running module).
+-->
+
+If your Kernel was compiled without support for `enable_unsafe_noiommu_mode`, you can also use the UIO drivers:
+```bash
+sudo modprobe uio_pci_generic
+sudo dpdk-devbind.py --bind=uio_pci_generic 0000:02:00.0
 ```
 
 ### pixelflut-v6-server
