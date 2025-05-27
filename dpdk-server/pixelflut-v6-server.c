@@ -244,6 +244,7 @@ static void lcore_main(struct main_thread_args *args) {
 
                 if (ipv6_hdr->proto == 58 /* ICMPv6 */) {
                     icmp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_icmp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr));
+                    // Note: In older(?) DPDK versions the constant was called RTE_IP_ICMP_ECHO_REQUEST
                     if (icmp_hdr->icmp_type == RTE_ICMP6_ECHO_REQUEST && icmp_hdr->icmp_code == 0) {
                         msg_kind = *rte_pktmbuf_mtod_offset(pkt[i], uint8_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr));
                         if (msg_kind == MSG_SET_PIXEL) {
