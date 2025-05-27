@@ -61,6 +61,10 @@ sudo dpdk-devbind.py --bind=uio_pci_generic 0000:02:00.0
 ### pixelflut-v6-server
 
 ```bash
+sudo apt install gcc make libmagickwand-dev
+```
+
+```bash
 cd dpdk-server
 make && sudo build/pixelflut-v6-server --file-prefix server1 -l 0 -a 0000:01:00.0
 ```
