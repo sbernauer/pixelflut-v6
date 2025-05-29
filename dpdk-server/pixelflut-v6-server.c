@@ -1,28 +1,27 @@
-#include <stdint.h>
-#include <stdlib.h>
-#include <inttypes.h>
-#include <locale.h>
 #include <sys/time.h>
-#include <argp.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <signal.h>
 #include <unistd.h>
+#include <argp.h>
+
 #include <rte_eal.h>
 #include <rte_ethdev.h>
-#include <rte_cycles.h>
 #include <rte_lcore.h>
+#include <rte_mempool.h>
 #include <rte_mbuf.h>
 
 #include "framebuffer.h"
 #include "stats.h"
 
-#define RX_RING_SIZE 1024
-#define TX_RING_SIZE 1024
-
-#define NUM_MBUFS 8191
-#define MBUF_CACHE_SIZE 250
+#define NUM_RX_QUEUES 2
+#define NUM_RX_DESC 1024
 #define BURST_SIZE 32
+#define MEMPOOL_CACHE_SIZE 256
 
-#define STATS_INTERVAL_MS 100
+#define STATS_INTERVAL_MS 250
 
+// pingxelflut protocol constants
 #define MSG_SIZE_REQUEST 0xaa
 #define MSG_SIZE_RESPONSE 0xbb
 #define MSG_SET_PIXEL 0xcc
@@ -41,25 +40,25 @@ struct arguments {
 };
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
-  // Get the input argument from argp_parse, which we know is a pointer to our arguments structure
-  struct arguments *arguments = state->input;
-
-  switch (key)
-    {
-    case 'w':
-      arguments->width = (uint16_t) strtol(arg, NULL, 10);
-      break;
-    case 'h':
-      arguments->height = (uint16_t) strtol(arg, NULL, 10);
-      break;
-    case 's':
-      arguments->shared_memory_name = arg;
-      break;
-
-    default:
-      return ARGP_ERR_UNKNOWN;
-    }
-  return 0;
+    // Get the input argument from argp_parse, which we know is a pointer to our arguments structure
+    struct arguments *arguments = state->input;
+  
+    switch (key)
+      {
+      case 'w':
+        arguments->width = (uint16_t) strtol(arg, NULL, 10);
+        break;
+      case 'h':
+        arguments->height = (uint16_t) strtol(arg, NULL, 10);
+        break;
+      case 's':
+        arguments->shared_memory_name = arg;
+        break;
+  
+      default:
+        return ARGP_ERR_UNKNOWN;
+      }
+    return 0;
 }
 
 const char *argp_program_version = "pixelflut-v6-server 0.1.0";
@@ -86,115 +85,47 @@ int find_free_stats_slot(struct framebuffer* fb, struct rte_ether_addr* mac_addr
     return -1;
 }
 
-// Main functional part of port initialization
-static inline int port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
-    struct rte_eth_conf port_conf;
-    const uint16_t rx_rings = 1, tx_rings = 1;
-    uint16_t nb_rxd = RX_RING_SIZE;
-    uint16_t nb_txd = TX_RING_SIZE;
-    int retval;
-    uint16_t q;
-    struct rte_eth_dev_info dev_info;
-    struct rte_eth_txconf txconf;
+static volatile bool force_quit = false;
+static uint64_t packet_counts[NUM_RX_QUEUES] = {0};
 
-    if (!rte_eth_dev_is_valid_port(port))
-        return -1;
-
-    memset(&port_conf, 0, sizeof(struct rte_eth_conf));
-
-    retval = rte_eth_dev_info_get(port, &dev_info);
-    if (retval != 0) {
-        printf("Error during getting device (port %u) info: %s\n", port, strerror(-retval));
-        return retval;
+static void signal_handler(int signum) {
+    if (signum == SIGINT || signum == SIGTERM) {
+        force_quit = true;
     }
-
-    if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
-        port_conf.txmode.offloads |=
-            RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
-
-    // Configure the Ethernet device
-    retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
-    if (retval != 0)
-        return retval;
-
-    retval = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
-    if (retval != 0)
-        return retval;
-
-    // Allocate and set up 1 RX queue per Ethernet port
-    for (q = 0; q < rx_rings; q++) {
-        retval = rte_eth_rx_queue_setup(port, q, nb_rxd,
-                rte_eth_dev_socket_id(port), NULL, mbuf_pool);
-        if (retval < 0)
-            return retval;
-    }
-
-    txconf = dev_info.default_txconf;
-    txconf.offloads = port_conf.txmode.offloads;
-    // Allocate and set up 1 TX queue per Ethernet port
-    for (q = 0; q < tx_rings; q++) {
-        retval = rte_eth_tx_queue_setup(port, q, nb_txd,
-                rte_eth_dev_socket_id(port), &txconf);
-        if (retval < 0)
-            return retval;
-    }
-
-    // Starting Ethernet port
-    retval = rte_eth_dev_start(port);
-    if (retval < 0)
-        return retval;
-
-    // Enable RX in promiscuous mode for the Ethernet device
-    retval = rte_eth_promiscuous_enable(port);
-    if (retval != 0)
-        return retval;
-
-    return 0;
 }
 
-struct main_thread_args {
-    struct rte_mempool *mbuf_pool;
-    int port_id;
+struct lcore_params {
+    uint16_t port_id;
+    uint16_t queue_id;
     struct framebuffer* fb;
+    int stats_slot;
+    bool update_stats;
 };
 
- /* Basic forwarding application lcore. 8< */
-static void lcore_main(struct main_thread_args *args) {
-    // Read args
-    struct rte_mempool *mbuf_pool = args->mbuf_pool;
-    int port_id = args->port_id;
-    struct framebuffer* fb = args->fb;
-
-    int err;
-    uint16_t port, nb_rx;
-
-    uint32_t stats_loop_counter = 0;
-    struct timeval last_stats_report, now;
-    long elapsed_millis;
-
-    gettimeofday(&last_stats_report, NULL);
+static int lcore_rx_loop(void *arg) {
+    struct lcore_params *params = (struct lcore_params *)arg;
+    const uint16_t port_id = params->port_id;
+    const uint16_t queue_id = params->queue_id;
+    struct framebuffer* fb = params->fb;
+    int stats_slot = params->stats_slot;
+    bool update_stats = params->update_stats;
 
     // Check that the port is on the same NUMA node as the polling thread for best performance
+    uint16_t port;
     RTE_ETH_FOREACH_DEV(port)
         if (rte_eth_dev_socket_id(port) >= 0 && rte_eth_dev_socket_id(port) != (int)rte_socket_id())
             printf("WARNING, port %u is on remote NUMA node to polling thread.\n"
                 "\tPerformance will not be optimal.\n", port);
 
-    struct rte_ether_addr mac_addr;
-    if((err = rte_eth_macaddr_get(port_id, &mac_addr))) {
-		fprintf(stderr, "Failed to read MAC address of port %d: %s\n", port_id, strerror(err));
-        return;
-	}
-    printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8" %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
-        port_id, RTE_ETHER_ADDR_BYTES(&mac_addr));
+    // Statistics stuff
+    struct rte_eth_stats* eth_stats = &fb->port_stats[stats_slot].stats;
 
-    int stat_slot = find_free_stats_slot(fb, &mac_addr);
-    if(stat_slot == -1) {
-		fprintf(stderr, "Failed to find free statistics slot. You compiled with support for maximum %d ports, \
-            please increase MAX_PORTS\n", MAX_PORTS);
-        return;
-	}
-    struct rte_eth_stats* eth_stats = &fb->port_stats[stat_slot].stats;
+    uint64_t hz = rte_get_timer_hz(); // Timer frequency in Hz
+    uint64_t interval = hz / 1000 * STATS_INTERVAL_MS; // 100 ms (or whatever) in timer cycles
+    uint64_t last_stats_report;
+
+    // Actual packet processing starts
+    struct rte_mbuf *pkt[BURST_SIZE];
 
     bool was_pingxelflut;
     struct rte_ether_hdr *eth_hdr;
@@ -206,11 +137,11 @@ static void lcore_main(struct main_thread_args *args) {
     uint16_t x, y;
     uint32_t rgba, icmp_payload_len;
 
-    struct rte_mbuf * pkt[BURST_SIZE];
-    int i;
-    for (;;) {
-        nb_rx = rte_eth_rx_burst(port_id, /* queue_id */ 0, pkt, BURST_SIZE);
-        for (i = 0; i < nb_rx; i++) {
+    while (!force_quit) {
+        uint16_t nb_rx = rte_eth_rx_burst(port_id, queue_id, pkt, BURST_SIZE);
+        packet_counts[queue_id] += nb_rx;
+
+        for (uint16_t i = 0; i < nb_rx; i++) {
             eth_hdr = rte_pktmbuf_mtod(pkt[i], struct rte_ether_hdr *);
 
             if (eth_hdr->ether_type == htons(RTE_ETHER_TYPE_IPV4)) {
@@ -244,8 +175,8 @@ static void lcore_main(struct main_thread_args *args) {
 
                 if (ipv6_hdr->proto == 58 /* ICMPv6 */) {
                     icmp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_icmp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr));
-                    // Note: In older(?) DPDK versions the constant was called RTE_IP_ICMP_ECHO_REQUEST
-                    if (icmp_hdr->icmp_type == RTE_ICMP6_ECHO_REQUEST && icmp_hdr->icmp_code == 0) {
+                    // Note: In older(?) DPDK versions the constant was called RTE_ICMP6_ECHO_REQUEST
+                    if (icmp_hdr->icmp_type == RTE_IP_ICMP_ECHO_REQUEST && icmp_hdr->icmp_code == 0) {
                         msg_kind = *rte_pktmbuf_mtod_offset(pkt[i], uint8_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr) + sizeof(struct rte_icmp_hdr));
                         if (msg_kind == MSG_SET_PIXEL) {
                             was_pingxelflut = true;
@@ -287,41 +218,39 @@ static void lcore_main(struct main_thread_args *args) {
             rte_pktmbuf_free(pkt[i]);
         }
 
-        // I assume reading the system time is a expensive operation, so let's not do that every loop...
-        stats_loop_counter++;
-        if (unlikely(stats_loop_counter > 10000)) {
-            stats_loop_counter = 0;
+        uint64_t now = rte_get_timer_cycles();
+        if ((now - last_stats_report) >= interval) {
+            last_stats_report = now;
 
-            gettimeofday(&now, NULL);
-            elapsed_millis = (now.tv_sec - last_stats_report.tv_sec) * 1000.0;
-            elapsed_millis += (now.tv_usec - last_stats_report.tv_usec) / 1000.0;
-
-            if (elapsed_millis >= STATS_INTERVAL_MS) {
-                last_stats_report = now;
-
-                rte_eth_stats_get(port_id, eth_stats);
-                // Printing commented out to not flood screen. They are printed as a nice table by pixel-fluter instead.
-                // setlocale(LC_NUMERIC, "");
-                // printf("Total number of packets for port %u: send %'lu packets (%'lu bytes), "
-                //     "received %'lu packets (%'lu bytes), dropped rx %'lu, ierrors %'lu, rx_nombuf %'lu, q_ipackets %'lu\n",
-                //     port_id, eth_stats->opackets, eth_stats->obytes, eth_stats->ipackets, eth_stats->ibytes, eth_stats->imissed,
-                //     eth_stats->ierrors, eth_stats->rx_nombuf, eth_stats->q_ipackets[0]);
-            }
+            rte_eth_stats_get(port_id, eth_stats);
+            // Printing commented out to not flood screen. They are printed as a nice table by pixel-fluter instead.
+            // setlocale(LC_NUMERIC, "");
+            // printf("Total number of packets for port %u: send %'lu packets (%'lu bytes), "
+            //     "received %'lu packets (%'lu bytes), dropped rx %'lu, ierrors %'lu, rx_nombuf %'lu, q_ipackets %'lu\n",
+            //     port_id, eth_stats->opackets, eth_stats->obytes, eth_stats->ipackets, eth_stats->ibytes, eth_stats->imissed,
+            //     eth_stats->ierrors, eth_stats->rx_nombuf, eth_stats->q_ipackets[0]);
         }
     }
 
-    // Closing and releasing resources
-    // rte_flow_flush(port_id, &error);
-    rte_eth_dev_stop(port_id);
-    rte_eth_dev_close(port_id);
+    return 0;
 }
 
-// The main function, which does initialization and calls the per-lcore functions
-int main(int argc, char *argv[]) {
-    // Initialize the Environment Abstraction Layer (EAL)
+static int stats_loop(__rte_unused void *arg) {
+    while (!force_quit) {
+        sleep(5);
+        printf("Queue counters: ");
+        for (int i = 0; i < NUM_RX_QUEUES; i++) {
+            printf("%ld ", packet_counts[i]);
+        }
+        printf("\n");
+    }
+    return 0;
+}
+
+int main(int argc, char **argv) {
     int ret = rte_eal_init(argc, argv);
     if (ret < 0)
-        rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");
+        rte_exit(EXIT_FAILURE, "EAL init failed\n");
 
     argc -= ret;
     argv += ret;
@@ -333,62 +262,135 @@ int main(int argc, char *argv[]) {
     arguments.shared_memory_name = "/pixelflut";
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
-    int err = 0;
+    // Determine port to use
+    if (rte_eth_dev_count_avail() != 1)
+        rte_exit(EXIT_FAILURE, "Exactly one port is required. Please start multiple pixelflut-v6-server instances if you have multiple ports. Or submit a PR to improve this :)\n");
+    uint16_t port_id = 0;
 
+    // Create framebuffer
     struct framebuffer* fb;
-    if((err = create_fb(&fb, arguments.width, arguments.height, arguments.shared_memory_name))) {
-		fprintf(stderr, "Failed to allocate framebuffer: %s\n", strerror(err));
-        return err;
-	}
+    ret = create_fb(&fb, arguments.width, arguments.height, arguments.shared_memory_name);
+    if (ret < 0)
+        rte_exit(EXIT_FAILURE, "Failed to allocate framebuffer\n");
 
-    // uint32_t rgb;
-    // srand(time(NULL));
-    // while (true) {
-    //     rgb = rand();
-    //     for (int x = 0; x < arguments.width / 2; x++) {
-    //         for (int y = 0; y < arguments.height / 1.5; y++) {
-    //             fb_set(fb, x, y, rgb);
-    //         }
-    //     }
-    //     printf("Painted random color\n");
-    //     usleep(500000);
-    // }
+    // Statistic stuff
+    struct rte_ether_addr mac_addr;
+    ret = rte_eth_macaddr_get(port_id, &mac_addr);
+    if (ret < 0)
+        rte_exit(EXIT_FAILURE, "Failed to read MAC address of port\n");
 
-    struct rte_mempool *mbuf_pool;
-    unsigned nb_ports;
-    uint16_t port_id;
+    printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8" %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n", port_id, RTE_ETHER_ADDR_BYTES(&mac_addr));
 
-    nb_ports = rte_eth_dev_count_avail();
-    printf("Detected %u ports\n", nb_ports);
-    if (nb_ports != 1)
-        rte_exit(EXIT_FAILURE, "Error: currently only a single port is supported, you have %d ports\n", nb_ports);
+    int stats_slot = find_free_stats_slot(fb, &mac_addr);
+    if (stats_slot == -1)
+        rte_exit(EXIT_FAILURE, "Failed to find free statistics slot, please increase MAX_PORTS\n");
 
-    // Allocates mempool to hold the mbufs
-    mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", NUM_MBUFS * nb_ports,
-        MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
-    if (mbuf_pool == NULL)
+    // Create mbuf pool
+    struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL",
+        8192, MEMPOOL_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+    if (!mbuf_pool)
         rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
 
-    // Initializing all ports
-    RTE_ETH_FOREACH_DEV(port_id)
-        if (port_init(port_id, mbuf_pool) != 0)
-            rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu16 "\n",
-                    port_id);
+    // Port configuration
+    // HASHING of all kinds of shit, all traffic ends up in queue 0
+    // struct rte_eth_conf port_conf = {
+    //     .rxmode = {
+    //         .mq_mode = RTE_ETH_MQ_RX_RSS,
+    //     },
+    //     .rx_adv_conf.rss_conf = {
+    //         .rss_key = NULL,
+    //         .rss_hf = RTE_ETH_RSS_IPV4 |
+    //                   RTE_ETH_RSS_NONFRAG_IPV4_TCP |
+    //                   RTE_ETH_RSS_NONFRAG_IPV4_UDP,
+    //     }
+    // };
 
-    if (rte_lcore_count() > 1) {
-        printf("\nWARNING: Too many lcores enabled. Only 1 used.\n");
+    // ChatGPT said "Intel NICs like the 82599 may then use round-robin among RX queues (if RSS is disabled and no Flow Director)."
+    // Behavior is NIC/driver specific, not guaranteed
+    // Well, turns out everything still lands in queue 0...
+    // struct rte_eth_conf port_conf = {
+    //     .rxmode = {
+    //         .mq_mode = RTE_ETH_MQ_RX_NONE,
+    //     }
+    // };
+    
+    // As we mostly only care about IPv6 we don't need to think about IPv4 hashing.
+    // My understanding is that this now hashes
+    // 1. source IP
+    // 2. destination IP
+    // As the destination IP has a gigantic cardinality (Pixelflut v6 höhö), this should distribute
+    // the traffic very evenly (regardless of the source IPs).
+    struct rte_eth_conf port_conf = {
+        .rxmode = {
+            .mq_mode = RTE_ETH_MQ_RX_RSS,
+        },
+        .rx_adv_conf.rss_conf = {
+            .rss_key = NULL,
+            .rss_hf = RTE_ETH_RSS_IPV6
+        }
+    };
+
+    ret = rte_eth_dev_configure(port_id, NUM_RX_QUEUES, 0, &port_conf);
+    if (ret < 0)
+        rte_exit(EXIT_FAILURE, "Cannot configure port\n");
+
+    // Setup RX queues
+    for (int q = 0; q < NUM_RX_QUEUES; q++) {
+        ret = rte_eth_rx_queue_setup(port_id, q, NUM_RX_DESC, rte_socket_id(), NULL, mbuf_pool);
+        if (ret < 0)
+            rte_exit(EXIT_FAILURE, "Cannot setup RX queue %d\n", q);
     }
 
-    // Call lcore_main on the main core only. Called on single lcore
-    struct main_thread_args args;
-    args.mbuf_pool = mbuf_pool;
-    // FIXME: Currently this only works with a single port
-    args.port_id = 0;
-    args.fb = fb;
+    // Start device
+    ret = rte_eth_dev_start(port_id);
+    if (ret < 0)
+        rte_exit(EXIT_FAILURE, "Cannot start port\n");
 
-    lcore_main(&args);
+    // Enable promiscuous mode
+    rte_eth_promiscuous_enable(port_id);
+    printf("Promiscuous mode enabled on port %u\n", port_id);
 
-    // Clean up the EAL
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    struct lcore_params lcore_args[NUM_RX_QUEUES];
+    unsigned main_lcore_idx = rte_get_main_lcore();
+    unsigned lcore_idx = main_lcore_idx;
+
+    // Launch queues 1..n (skip 0) on available workers
+    for (int q = 1; q < NUM_RX_QUEUES; q++) {
+        lcore_idx = rte_get_next_lcore(lcore_idx, 1, 0);
+        if (lcore_idx == RTE_MAX_LCORE)
+            rte_exit(EXIT_FAILURE, "Not enough lcores for queue %d, need more lcores!\n", q);
+
+        lcore_args[q].port_id = port_id;
+        lcore_args[q].queue_id = q;
+        lcore_args[q].fb = fb;
+        lcore_args[q].stats_slot = stats_slot;
+        lcore_args[q].update_stats = false; // Only the main thread updates the stats
+
+        printf("Core %u: Handles queue %u\n", lcore_idx, q);
+        rte_eal_remote_launch(lcore_rx_loop, &lcore_args[q], lcore_idx);
+    }
+
+    lcore_idx = rte_get_next_lcore(lcore_idx, 1, 0);
+    if (lcore_idx == RTE_MAX_LCORE)
+        rte_exit(EXIT_FAILURE, "Not enough lcores for stats thread, need more lcores\n");
+
+    printf("Core %u: Handles statistics loop\n", lcore_idx);
+    rte_eal_remote_launch(stats_loop, NULL, lcore_idx);
+
+    // Queue 0 handled by main thread
+    lcore_args[0].port_id = port_id;
+    lcore_args[0].queue_id = 0;
+    lcore_args[0].fb = fb;
+    lcore_args[0].stats_slot = stats_slot;
+    lcore_args[0].update_stats = true; // Only the main thread updates the stats
+    printf("Core %d: Handles queue 0\n", main_lcore_idx);
+    lcore_rx_loop(&lcore_args[0]);
+
+    rte_eth_dev_stop(port_id);
+    rte_eth_dev_close(port_id);
     rte_eal_cleanup();
 
     // TODO: Close shared memory again
