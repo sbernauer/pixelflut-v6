@@ -96,7 +96,7 @@ For this I would recommend using breakwater and enabling the `binary-pixel-sync`
 ```bash
 git clone https://github.com/sbernauer/breakwater.git
 cd breakwater
-cargo run --release --all-features -- --width 1920 --height 1080
+cargo run --release --features binary-sync-pixels -- --width 1920 --height 1080
 ```
 
 See https://github.com/sbernauer/breakwater for installation instructions in case of problems.
