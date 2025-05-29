@@ -292,8 +292,8 @@ static __rte_noreturn void lcore_main(struct main_thread_args *args) {
                 memcpy(ipv6_hdr->dst_addr, &args->pingxelflut_target, sizeof(struct in6_addr));
 
                 icmp_hdr = rte_pktmbuf_mtod_offset(pkt[i], struct rte_icmp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr));
-                // Note: In older (or newer?) DPDK versions the constant was called RTE_IP_ICMP_ECHO_REQUEST
-                icmp_hdr->icmp_type = RTE_ICMP6_ECHO_REQUEST;
+                // Note: In older (or newer?) DPDK versions the constant was called RTE_ICMP6_ECHO_REQUEST
+                icmp_hdr->icmp_type = RTE_IP_ICMP_ECHO_REQUEST;
                 icmp_hdr->icmp_code = 0;
                 // Let's see how it goes
                 icmp_hdr->icmp_cksum = 0;
