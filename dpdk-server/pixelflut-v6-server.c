@@ -235,6 +235,29 @@ static int lcore_rx_loop(void *arg) {
     return 0;
 }
 
+int disable_pause_frames(uint16_t port_id) {
+    struct rte_eth_fc_conf fc_conf;
+
+    memset(&fc_conf, 0, sizeof(fc_conf));
+
+    // rte_eth_fc_mode enum:
+    // RTE_ETH_FC_NONE      Disable flow control.
+    // RTE_ETH_FC_RX_PAUSE  Rx pause frame, enable flowctrl on Tx side.
+    // RTE_ETH_FC_TX_PAUSE  Tx pause frame, enable flowctrl on Rx side.
+    // RTE_ETH_FC_FULL      Enable flow control on both sides.
+    fc_conf.mode = RTE_ETH_FC_NONE;
+
+    int ret = rte_eth_dev_flow_ctrl_set(port_id, &fc_conf);
+    if (ret < 0) {
+        printf("Failed to disable flow control on port %u: %s\n",
+               port_id, rte_strerror(-ret));
+        return ret;
+    }
+
+    printf("Flow control (pause frames) disabled on port %u\n", port_id);
+    return 0;
+}
+
 static int stats_loop(__rte_unused void *arg) {
     while (!force_quit) {
         sleep(5);
@@ -349,6 +372,11 @@ int main(int argc, char **argv) {
     // Enable promiscuous mode
     rte_eth_promiscuous_enable(port_id);
     printf("Promiscuous mode enabled on port %u\n", port_id);
+
+    // Disable_pause_frames
+    disable_pause_frames(port_id);
+
+    // All network ports set up
 
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
