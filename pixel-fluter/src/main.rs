@@ -3,6 +3,7 @@ use std::slice;
 use anyhow::{Context, Result, bail};
 use args::Args;
 use clap::Parser;
+use prometheus_exporter::PrometheusExporter;
 use shared_memory::ShmemConf;
 use tokio::net::TcpStream;
 use tracing::{debug, info, warn};
@@ -11,6 +12,7 @@ use crate::{drawer::drawing_thread, statistics::Statistics, ui::Ui};
 
 mod args;
 mod drawer;
+mod prometheus_exporter;
 mod statistics;
 mod ui;
 
@@ -109,6 +111,10 @@ async fn main() -> Result<(), anyhow::Error> {
             height,
         ));
     }
+
+    let prometheus_exporter = PrometheusExporter::new(current_statistics)
+        .context("Failed tio start Prometheus exporter")?;
+    tokio::spawn(async move { prometheus_exporter.run().await });
 
     let mut ui = Ui::new(current_statistics);
     ui.start().context("Failed to start UI")
