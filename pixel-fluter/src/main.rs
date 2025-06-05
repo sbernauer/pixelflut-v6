@@ -3,12 +3,13 @@ use std::slice;
 use anyhow::{Context, Result, bail};
 use args::Args;
 use clap::Parser;
+use drawer::Drawer;
 use prometheus_exporter::PrometheusExporter;
 use shared_memory::ShmemConf;
 use tokio::net::TcpStream;
 use tracing::{debug, info, warn};
 
-use crate::{drawer::drawing_thread, statistics::Statistics, ui::Ui};
+use crate::{statistics::Statistics, ui::Ui};
 
 mod args;
 mod drawer;
@@ -34,7 +35,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .open()
         .with_context(|| {
             format!(
-                "Failed to open shared memory with the OS id \"{}\" (probably at location /dev/shm/{}). Is the backend running?",
+                "Failed to open shared memory with the OS id \"{}\" (probably at location /dev/shm/{}). Is the backend running? Are you missing permissions (try sudo)?",
                 args.shared_memory_name, args.shared_memory_name
             )
         })?;
@@ -80,37 +81,19 @@ async fn main() -> Result<(), anyhow::Error> {
             .unwrap()
     };
 
-    info!(
-        drawing_threads = args.drawing_threads,
-        "Starting drawing threads"
-    );
-    let thread_chunk_size = (fb.len() / args.drawing_threads as usize) + 1;
-    let mut index = 0;
-    for fb_slice in fb.chunks_mut(thread_chunk_size) {
-        let start_x = (index % width as usize) as u16;
-        let start_y = (index / width as usize) as u16;
-        index += fb_slice.len();
-
-        let sink = TcpStream::connect(&args.pixelflut_sink)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to connect to Pixelflut sink at {}",
-                    &args.pixelflut_sink
-                )
-            })?;
-
-        tokio::spawn(drawing_thread(
-            fb_slice,
-            sink,
-            args.transmit_mode.clone(),
-            args.fps,
-            start_x,
-            start_y,
-            width,
-            height,
-        ));
-    }
+    let sink = TcpStream::connect(&args.pixelflut_sink)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to connect to Pixelflut sink at {}",
+                &args.pixelflut_sink
+            )
+        })?;
+    let mut drawer =
+        Drawer::new(fb, sink, width, height, &args).context("Failed to created drawer")?;
+    tokio::spawn(async move {
+        drawer.run().await.expect("failed to run drawer");
+    });
 
     let prometheus_exporter = PrometheusExporter::new(current_statistics)
         .context("Failed tio start Prometheus exporter")?;
