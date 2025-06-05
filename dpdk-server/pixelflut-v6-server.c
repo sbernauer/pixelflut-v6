@@ -285,16 +285,16 @@ int main(int argc, char **argv) {
     arguments.shared_memory_name = "/pixelflut";
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
-    // Determine port to use
-    if (rte_eth_dev_count_avail() != 1)
-        rte_exit(EXIT_FAILURE, "Exactly one port is required. Please start multiple pixelflut-v6-server instances if you have multiple ports. Or submit a PR to improve this :)\n");
-    uint16_t port_id = 0;
-
     // Create framebuffer
     struct framebuffer* fb;
     ret = create_fb(&fb, arguments.width, arguments.height, arguments.shared_memory_name);
     if (ret < 0)
         rte_exit(EXIT_FAILURE, "Failed to allocate framebuffer\n");
+
+    // Determine port to use
+    if (rte_eth_dev_count_avail() != 1)
+        rte_exit(EXIT_FAILURE, "Exactly one port is required. Please start multiple pixelflut-v6-server instances if you have multiple ports. Or submit a PR to improve this :)\n");
+    uint16_t port_id = 0;
 
     // Statistic stuff
     struct rte_ether_addr mac_addr;
