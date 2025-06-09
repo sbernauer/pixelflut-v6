@@ -17,7 +17,7 @@
 #include "framebuffer.h"
 #include "stats.h"
 
-#define MAX_PORTS 32
+#define MAX_PORTS 32 // Needs to match Rust code
 #define MAX_CORES 128
 #define MAX_CORES_PER_PORT 16
 #define MAX_QUEUES_PER_CORE 64
@@ -360,18 +360,57 @@ static int lcore_main(void *arg) {
     return 0;
 }
 
-static int stats_loop(__rte_unused void *arg) {
+static void stats_loop(struct framebuffer* fb) {
+    // Store mapping from port to stats slot
+    int port_to_slot[MAX_PORTS];
+    for (int i = 0; i < MAX_PORTS; i++)
+        port_to_slot[i] = -1;
+
+    // Construct mapping from port to stats slot
+    for (uint16_t port_id = 0; port_id < total_ports; port_id++) {
+        struct rte_ether_addr mac_addr;
+        int ret = rte_eth_macaddr_get(port_id, &mac_addr);
+        if (ret < 0) {
+            rte_exit(EXIT_FAILURE, "Failed to read MAC address of port %u\n", port_id);
+        }
+
+        printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
+               port_id, RTE_ETHER_ADDR_BYTES(&mac_addr));
+
+        int stats_slot = find_free_stats_slot(fb, &mac_addr);
+        if (stats_slot == -1) {
+            rte_exit(EXIT_FAILURE, "Failed to find free statistics slot for port %u, increase MAX_PORTS\n", port_id);
+        }
+
+        port_to_slot[port_id] = stats_slot;
+    }
+
+    // Do actual stat polling
+    int print_to_screen_counter = 50;
     while (1) {
-        printf("\n[RX Stats]\n");
-        for (uint16_t p = 0; p < MAX_PORTS; p++) {
-            for (uint16_t q = 0; q < ports[p].nb_queues; q++) {
-                printf("Port %u Queue %u: %lu pkts\n", p, q, rx_counters[p][q]);
+        for (uint16_t port_id = 0; port_id < total_ports; port_id++) {
+            int slot = port_to_slot[port_id];
+            if (slot == -1)
+                rte_exit(EXIT_FAILURE, "The port %d hat stats slot %d, which should never happen", port_id, slot);
+
+            rte_eth_stats_get(port_id, &fb->port_stats[slot].stats);
+
+            print_to_screen_counter--;
+            if (print_to_screen_counter <= 0) {
+                print_to_screen_counter = 50;
+
+                printf("\n[RX Stats]\n");
+                for (uint16_t p = 0; p < MAX_PORTS; p++) {
+                    for (uint16_t q = 0; q < ports[p].nb_queues; q++) {
+                        printf("Port %u Queue %u: %lu pkts\n", p, q, rx_counters[p][q]);
+                    }
+                }
+                fflush(stdout);
             }
         }
-        fflush(stdout);
-        sleep(2);
+
+        usleep(100000); // Sleep 100ms
     }
-    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -424,7 +463,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    stats_loop(NULL);
+    stats_loop(fb);
     rte_eal_mp_wait_lcore();
     return 0;
 }
