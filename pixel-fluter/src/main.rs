@@ -9,13 +9,13 @@ use shared_memory::ShmemConf;
 use tokio::net::TcpStream;
 use tracing::{debug, info, warn};
 
-use crate::{statistics::Statistics, ui::Ui};
+use crate::{statistics::Statistics, tui::Tui};
 
 mod args;
 mod drawer;
 mod prometheus_exporter;
 mod statistics;
-mod ui;
+mod tui;
 
 // Width and height, both of type u16.
 const HEADER_SIZE: usize = 2 * std::mem::size_of::<u16>();
@@ -99,6 +99,8 @@ async fn main() -> Result<(), anyhow::Error> {
         .context("Failed tio start Prometheus exporter")?;
     tokio::spawn(async move { prometheus_exporter.run().await });
 
-    let mut ui = Ui::new(current_statistics);
-    ui.start().context("Failed to start UI")
+    let mut tui = Tui::new(current_statistics);
+    tui.run().context("Failed to start TUI")?;
+
+    Ok(())
 }
