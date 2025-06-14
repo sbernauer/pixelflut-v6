@@ -225,7 +225,45 @@ static void init_port(uint16_t port_id) {
     struct port_config *cfg = &ports[port_id];
     if (cfg->nb_queues == 0) return;
 
-    struct rte_eth_conf port_conf = { 0 };
+    // struct rte_eth_conf port_conf = { 0 };
+
+    // HASHING of all kinds of shit, all traffic ends up in queue 0
+    // struct rte_eth_conf port_conf = {
+    //     .rxmode = {
+    //         .mq_mode = RTE_ETH_MQ_RX_RSS,
+    //     },
+    //     .rx_adv_conf.rss_conf = {
+    //         .rss_key = NULL,
+    //         .rss_hf = RTE_ETH_RSS_IPV4 |
+    //                   RTE_ETH_RSS_NONFRAG_IPV4_TCP |
+    //                   RTE_ETH_RSS_NONFRAG_IPV4_UDP,
+    //     }
+    // };
+
+    // ChatGPT said "Intel NICs like the 82599 may then use round-robin among RX queues (if RSS is disabled and no Flow Director)."
+    // Behavior is NIC/driver specific, not guaranteed
+    // Well, turns out everything still lands in queue 0...
+    // struct rte_eth_conf port_conf = {
+    //     .rxmode = {
+    //         .mq_mode = RTE_ETH_MQ_RX_NONE,
+    //     }
+    // };
+
+    // As we mostly only care about IPv6 we don't need to think about IPv4 hashing.
+    // My understanding is that this now hashes
+    // 1. source IP
+    // 2. destination IP
+    // As the destination IP has a gigantic cardinality (Pixelflut v6 höhö), this should distribute
+    // the traffic very evenly (regardless of the source IPs).
+    struct rte_eth_conf port_conf = {
+        .rxmode = {
+            .mq_mode = RTE_ETH_MQ_RX_RSS,
+        },
+        .rx_adv_conf.rss_conf = {
+            .rss_key = NULL,
+            .rss_hf = RTE_ETH_RSS_IPV6
+        }
+    };
 
     if (rte_eth_dev_configure(port_id, cfg->nb_queues, 0, &port_conf) < 0)
         rte_exit(EXIT_FAILURE, "Port %u configure failed\n", port_id);
