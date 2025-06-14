@@ -147,7 +147,7 @@ static void parse_port_core_map(const char *arg) {
                 rte_exit(EXIT_FAILURE, "Too many cores for port %d\n", port);
 
             if (core == 0)
-                rte_exit(EXIT_FAILURE, "Im sorry, but core 0 is reserved for the main (stats) loop, use a different one");
+                rte_exit(EXIT_FAILURE, "Im sorry, but core 0 is reserved for the main (stats) loop, use a different one\n");
 
             p->cores[p->nb_queues++] = core;
             ctok = strtok_r(NULL, ",", &saveptr2);
@@ -391,7 +391,7 @@ static void stats_loop(struct framebuffer* fb) {
         for (uint16_t port_id = 0; port_id < total_ports; port_id++) {
             int slot = port_to_slot[port_id];
             if (slot == -1)
-                rte_exit(EXIT_FAILURE, "The port %d hat stats slot %d, which should never happen", port_id, slot);
+                rte_exit(EXIT_FAILURE, "The port %d hat stats slot %d, which should never happen\n", port_id, slot);
 
             rte_eth_stats_get(port_id, &fb->port_stats[slot].stats);
 
